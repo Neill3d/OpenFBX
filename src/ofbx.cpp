@@ -526,6 +526,7 @@ static OptionalError<Property*> readProperty(Cursor* cursor)
 			break;
 		}
 		case 'b':
+		case 'c':
 		case 'f':
 		case 'd':
 		case 'l':
