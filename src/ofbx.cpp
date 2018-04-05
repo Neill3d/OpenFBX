@@ -15,7 +15,9 @@ namespace ofbx
 struct Error
 {
 	Error() {}
-	Error(const char* msg) { s_message = msg; }
+	Error(const char* msg) { 
+		s_message = msg; 
+	}
 
 	static const char* s_message;
 };
@@ -191,15 +193,15 @@ static Matrix getRotationMatrix(const Vec3& euler, RotationOrder order)
 }
 
 
-static double fbxTimeToSeconds(u64 value)
+double fbxTimeToSeconds(i64 value)
 {
 	return double(value) / 46186158000L;
 }
 
 
-static u64 secondsToFbxTime(double value)
+static i64 secondsToFbxTime(double value)
 {
-	return u64(value * 46186158000L);
+	return i64(value * 46186158000L);
 }
 
 
@@ -329,6 +331,8 @@ struct Property : IElementProperty
 	bool getValues(float* values, int max_size) const override { return parseArrayRaw(*this, values, max_size); }
 
 	bool getValues(u64* values, int max_size) const override { return parseArrayRaw(*this, values, max_size); }
+
+	bool getValues(i64* values, int max_size) const override { return parseArrayRaw(*this, values, max_size); }
 
 	bool getValues(int* values, int max_size) const override { return parseArrayRaw(*this, values, max_size); }
 
@@ -623,14 +627,18 @@ static OptionalError<Element*> readElement(Cursor* cursor, u32 version)
 	while (cursor->current - cursor->begin < ((ptrdiff_t)end_offset.getValue() - BLOCK_SENTINEL_LENGTH))
 	{
 		OptionalError<Element*> child = readElement(cursor, version);
+
 		if (child.isError())
 		{
 			deleteElement(element);
 			return Error();
 		}
 
-		*link = child.getValue();
-		link = &(*link)->sibling;
+		if (nullptr != child.getValue())
+		{
+			*link = child.getValue();
+			link = &(*link)->sibling;
+		}
 	}
 
 	if (cursor->current + BLOCK_SENTINEL_LENGTH > cursor->end)
@@ -1290,12 +1298,38 @@ struct AnimationCurveImpl : AnimationCurve
 	{
 	}
 
-	int getKeyCount() const override { return (int)times.size(); }
-	const u64* getKeyTime() const override { return &times[0]; }
-	const float* getKeyValue() const override { return &values[0]; }
+	double Evaluate(const i64 time) const
+	{
+		size_t count = values.size();
 
-	std::vector<u64> times;
-	std::vector<float> values;
+		if (0 == count)
+			return 0.0;
+
+		i64 fbx_time(time);
+
+		if (fbx_time < times[0]) fbx_time = times[0];
+		if (fbx_time > times[count - 1]) fbx_time = times[count - 1];
+
+		for (size_t i = 1; i < count; ++i)
+		{
+			if (times[i] >= fbx_time)
+			{
+				float t = float(double(fbx_time - times[i - 1]) / double(times[i] - times[i - 1]));
+				return values[i - 1] * (1 - t) + values[i] * t;
+			}
+		}
+		return values[0];
+	}
+
+	int getKeyCount() const override { return (int)times.size(); }
+	const i64* getKeyTime() const override { return &times[0]; }
+	const float* getKeyValue() const override { return &values[0]; }
+	const int *getKeyFlag() const override { return &flags[0]; }
+
+	std::vector<i64>	times;
+	std::vector<float>	values;
+	std::vector<int>	flags;
+
 	Type getType() const override { return Type::ANIMATION_CURVE; }
 };
 
@@ -1464,24 +1498,9 @@ struct AnimationCurveNodeImpl : AnimationCurveNode
 	{
 		u64 fbx_time = secondsToFbxTime(time);
 
-		auto getCoord = [](const Curve& curve, u64 fbx_time) {
-			if (!curve.curve) return 0.0f;
-
-			const u64* times = curve.curve->getKeyTime();
-			const float* values = curve.curve->getKeyValue();
-			int count = curve.curve->getKeyCount();
-
-			if (fbx_time < times[0]) fbx_time = times[0];
-			if (fbx_time > times[count - 1]) fbx_time = times[count - 1];
-			for (int i = 1; i < count; ++i)
-			{
-				if (times[i] >= fbx_time)
-				{
-					float t = float(double(fbx_time - times[i - 1]) / double(times[i] - times[i - 1]));
-					return values[i - 1] * (1 - t) + values[i] * t;
-				}
-			}
-			return values[0];
+		auto getCoord = [](const Curve& curve, i64 fbx_time) {
+			if (!curve.curve) return 0.0;
+			return curve.curve->Evaluate(fbx_time);
 		};
 
 		return {getCoord(curves[0], fbx_time), getCoord(curves[1], fbx_time), getCoord(curves[2], fbx_time)};
@@ -1720,6 +1739,14 @@ template <> const char* fromString<u64>(const char* str, const char* end, u64* v
 	return (const char*)iter;
 }
 
+template <> const char* fromString<i64>(const char* str, const char* end, i64* val)
+{
+	*val = atol(str);
+	const char* iter = str;
+	while (iter < end && *iter != ',') ++iter;
+	if (iter < end) ++iter; // skip ','
+	return (const char*)iter;
+}
 
 template <> const char* fromString<double>(const char* str, const char* end, double* val)
 {
@@ -1994,6 +2021,7 @@ static OptionalError<Object*> parseAnimationCurve(const Scene& scene, const Elem
 
 	const Element* times = findChild(element, "KeyTime");
 	const Element* values = findChild(element, "KeyValueFloat");
+	const Element *flags = findChild(element, "KeyAttrFlags");
 
 	if (times && times->first_property)
 	{
@@ -2008,6 +2036,31 @@ static OptionalError<Object*> parseAnimationCurve(const Scene& scene, const Elem
 	{
 		curve->values.resize(values->first_property->getCount());
 		if (!values->first_property->getValues(&curve->values[0], (int)curve->values.size() * sizeof(curve->values[0])))
+		{
+			return Error("Invalid animation curve");
+		}
+	}
+
+	if (flags && flags->first_property)
+	{
+		if (curve->values.size() == values->first_property->getCount())
+		{
+			curve->flags.resize(values->first_property->getCount());
+			if (!values->first_property->getValues(&curve->flags[0], (int)curve->flags.size() * sizeof(curve->flags[0])))
+			{
+				return Error("Invalid animation curve");
+			}
+		}
+		else if (1 == values->first_property->getCount())
+		{
+			int value = 0;
+			if (!values->first_property->getValues(&value, sizeof(int)))
+			{
+				return Error("Invalid animation curve");
+			}
+			curve->flags.resize(curve->values.size(), value);
+		}
+		else
 		{
 			return Error("Invalid animation curve");
 		}
@@ -2895,6 +2948,37 @@ IScene* load(const u8* data, int size)
 const char* getError()
 {
 	return Error::s_message;
+}
+
+const Object *lookForObjectName(const ofbx::Object& object, const char *name)
+{
+	if (true == object.isNode())
+	{
+		if (0 == strcmp(object.name, name))
+		{
+			return &object;
+		}
+	}
+
+	int i = 0;
+	while (ofbx::Object* child = object.resolveObjectLink(i))
+	{
+		const Object *pObj = lookForObjectName(*child, name);
+		if (nullptr != pObj)
+			return pObj;
+
+		++i;
+	}
+	return nullptr;
+}
+
+const Object *findObjectByLabelName(IScene *pScene, const char *name, const ofbx::Object *pRoot)
+{
+	const ofbx::Object* root = (nullptr == pRoot) ? pScene->getRoot() : pRoot;
+	if (root) 
+		return lookForObjectName(*root, name);
+
+	return nullptr;
 }
 
 
