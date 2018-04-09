@@ -6,7 +6,14 @@
 #include <memory>
 #include <unordered_map>
 #include <vector>
+#include <algorithm>
 
+
+#define ANIMATIONNODE_TYPENAME_TRANSLATION	"Lcl Translation"
+#define ANIMATIONNODE_TYPENAME_ROTATION		"Lcl Rotation"
+#define ANIMATIONNODE_TYPENAME_SCALING		"Lcl Scaling"
+#define ANIMATIONNODE_TYPENAME_VISIBILITY	"Visibility"
+#define ANIMATIONNODE_TYPENAME_FIELDOFVIEW	"Field Of View"
 
 namespace ofbx
 {
@@ -407,6 +414,15 @@ static int resolveEnumProperty(const Object& object, const char* name, int defau
 	return x->value.toInt();
 }
 
+static double resolveDoubleProperty(const Object& object, const char* name, const double default_value)
+{
+	Element* element = (Element*)resolveProperty(object, name);
+	if (!element) return default_value;
+	Property* x = (Property*)element->getProperty(4);
+	if (!x) return default_value;
+
+	return x->value.toDouble();
+}
 
 static Vec3 resolveVec3Property(const Object& object, const char* name, const Vec3& default_value)
 {
@@ -418,12 +434,33 @@ static Vec3 resolveVec3Property(const Object& object, const char* name, const Ve
 	return {x->value.toDouble(), x->next->value.toDouble(), x->next->next->value.toDouble()};
 }
 
+static int resolveIntProperty(const Object& object, const char* name, const int default_value)
+{
+	Element* element = (Element*)resolveProperty(object, name);
+	if (!element) return default_value;
+	Property* x = (Property*)element->getProperty(4);
+	if (!x) return default_value;
+
+	return x->value.toInt();
+}
+
+static bool resolveBoolProperty(const Object& object, const char* name, const bool default_value)
+{
+	Element* element = (Element*)resolveProperty(object, name);
+	if (!element) return default_value;
+	Property* x = (Property*)element->getProperty(4);
+	if (!x) return default_value;
+
+	return (x->value.toInt() > 0);
+}
+
 
 Object::Object(const Scene& _scene, const IElement& _element)
 	: scene(_scene)
 	, element(_element)
 	, is_node(false)
 	, node_attribute(nullptr)
+	, user_data(nullptr)
 {
 	auto& e = (Element&)_element;
 	if (e.first_property && e.first_property->next)
@@ -434,6 +471,12 @@ Object::Object(const Scene& _scene, const IElement& _element)
 	{
 		name[0] = '\0';
 	}
+}
+
+Model::Model(const Scene& _scene, const IElement& _element)
+: Object(_scene, _element)
+{
+	is_node = true;
 }
 
 
@@ -969,7 +1012,7 @@ struct Scene;
 
 
 Mesh::Mesh(const Scene& _scene, const IElement& _element)
-	: Object(_scene, _element)
+	: Model(_scene, _element)
 {
 }
 
@@ -1040,10 +1083,10 @@ struct MaterialImpl : Material
 };
 
 
-struct LimbNodeImpl : Object
+struct LimbNodeImpl : Model
 {
 	LimbNodeImpl(const Scene& _scene, const IElement& _element)
-		: Object(_scene, _element)
+		: Model(_scene, _element)
 	{
 		is_node = true;
 	}
@@ -1051,16 +1094,25 @@ struct LimbNodeImpl : Object
 };
 
 
-struct NullImpl : Object
+struct NullImpl : Model
 {
 	NullImpl(const Scene& _scene, const IElement& _element)
-		: Object(_scene, _element)
+		: Model(_scene, _element)
 	{
 		is_node = true;
 	}
 	Type getType() const override { return Type::NULL_NODE; }
 };
 
+struct CameraImpl : Model
+{
+	CameraImpl(const Scene& _scene, const IElement& _element)
+	: Model(_scene, _element)
+	{
+		is_node = true;
+	}
+	Type getType() const override { return Type::CAMERA; }
+};
 
 NodeAttribute::NodeAttribute(const Scene& _scene, const IElement& _element)
 	: Object(_scene, _element)
@@ -1272,22 +1324,46 @@ AnimationCurveNode::AnimationCurveNode(const Scene& _scene, const IElement& _ele
 {
 }
 
-
 struct AnimationStackImpl : AnimationStack
 {
 	AnimationStackImpl(const Scene& _scene, const IElement& _element)
 		: AnimationStack(_scene, _element)
 	{
+		mLoopStart = 0;
+		mLoopStop = secondsToFbxTime(4.0);
 	}
 
+	i64		getLoopStart() const override
+	{
+		return mLoopStart;
+	}
+	i64		getLoopStop() const override
+	{
+		return mLoopStop;
+	}
+
+	int getLayerCount() const override
+	{
+		return (int)mLayers.size();
+	}
 
 	const AnimationLayer* getLayer(int index) const override
 	{
-		return resolveObjectLink<AnimationLayer>(index);
+		if (index >= 0 && index < (int)mLayers.size())
+			return mLayers[index];
+		return nullptr;
+		//return resolveObjectLink<AnimationLayer>(index);
 	}
 
+	// sort layers by mLayerID (re-arrange as user defined in mobu)
+	bool sortLayers();
 
 	Type getType() const override { return Type::ANIMATION_STACK; }
+
+	i64		mLoopStart;
+	i64		mLoopStop;
+
+	std::vector<AnimationLayer*>	mLayers;
 };
 
 
@@ -1506,6 +1582,27 @@ struct AnimationCurveNodeImpl : AnimationCurveNode
 		return {getCoord(curves[0], fbx_time), getCoord(curves[1], fbx_time), getCoord(curves[2], fbx_time)};
 	}
 
+	AnimationLayer *getLayer() const override
+	{
+		return mLayer;
+	}
+
+	int getCurveCount() const override
+	{
+		int result = 0;
+		if (nullptr != curves[2].curve)
+			result = 3;
+		else if (nullptr != curves[1].curve)
+			result = 2;
+		else if (nullptr != curves[0].curve)
+			result = 1;
+
+		return result;
+	}
+	const AnimationCurve *getCurve(int index) const override
+	{
+		return curves[index].curve;
+	}
 
 	struct Curve
 	{
@@ -1513,17 +1610,12 @@ struct AnimationCurveNodeImpl : AnimationCurveNode
 		const Scene::Connection* connection = nullptr;
 	};
 
-
+	AnimationLayer *mLayer = nullptr;
 	Curve curves[3];
 	Object* bone = nullptr;
 	DataView bone_link_property;
 	Type getType() const override { return Type::ANIMATION_CURVE_NODE; }
-	enum Mode
-	{
-		TRANSLATION,
-		ROTATION,
-		SCALE
-	} mode = TRANSLATION;
+	AnimationNodeType mode = ANIMATIONNODE_TYPE_CUSTOM;
 };
 
 
@@ -1532,11 +1624,56 @@ struct AnimationLayerImpl : AnimationLayer
 	AnimationLayerImpl(const Scene& _scene, const IElement& _element)
 		: AnimationLayer(_scene, _element)
 	{
+		mLayerID = 0;
+		parentLayer = nullptr;
+
+		LayerMode = kFBLayerModeAdditive;
+		LayerRotationMode = kFBLayerRotationModeEulerRotation;
+
+		// TODO: this should be assigned from fbx template for the FbxAnimLayer
+
+		Mute = false;
+		Solo = false;
+		Lock = false;
+		Weight = 100.0;
+		weightAnimNode = nullptr;
 	}
 
 
 	Type getType() const override { return Type::ANIMATION_LAYER; }
 
+	bool isMute() const override
+	{
+		return Mute; // resolveBoolProperty(*this, "Mute", false);
+	}
+	bool isSolo() const override
+	{
+		return Solo; // resolveBoolProperty(*this, "Solo", false);
+	}
+
+	// DONE: weight could be animated !!
+	double getWeight() const override
+	{
+		return Weight; // resolveDoubleProperty(*this, "Weight", 100.0);
+	}
+
+	AnimationCurveNode *getWeightAnimNode() const override
+	{
+		return weightAnimNode;
+	}
+
+	int getSubLayerCount() const override
+	{
+		return (int)sublayers.size();
+	}
+	
+	const AnimationLayer *getSubLayer(int index) const override
+	{
+		if (index >= 0 && index < (int)sublayers.size())
+			return sublayers[index];
+
+		return nullptr;
+	}
 
 	const AnimationCurveNode* getCurveNode(int index) const override
 	{
@@ -1554,7 +1691,30 @@ struct AnimationLayerImpl : AnimationLayer
 		return nullptr;
 	}
 
+	void InitProperties()
+	{
+		mLayerID = resolveIntProperty(*this, "mLayerID", 0);
+		Mute = resolveBoolProperty(*this, "Mute", false);
+		Solo = resolveBoolProperty(*this, "Solo", false);
+		Lock = resolveBoolProperty(*this, "Lock", false);
+		Weight = resolveDoubleProperty(*this, "Weight", 100.0);
+	}
 
+	int			mLayerID;	// rearranged order of layers, defined by users
+
+	bool		Solo;				//!< <b>Read Write Property:</b> If true, the layer is soloed. When you solo a layer, you mute other layers that are at the same level in the hierarchy, as well as the children of those layers. Cannot be applied to the BaseAnimation Layer.
+	bool		Mute;				//!< <b>Read Write Property:</b> If true, the layer is muted. A muted layer is not included in the result animation. Cannot be applied to the BaseAnimation Layer.
+	bool		Lock;				//!< <b>Read Write Property:</b> If true, the layer is locked. You cannot modify keyframes on a locked layer.
+	
+	double 		Weight;				//!< <b>Read Write Property:</b> The weight value of a layer determines how much it is present in the result animation. Takes a value from 0 (the layer is not present) to 100. The weighting of a parent layer is factored into the weighting of its child layers, if any. BaseAnimation Layer always has a Weight of 100. 
+	AnimationCurveNodeImpl *weightAnimNode;
+	
+	FBLayerMode			LayerMode;			//!< <b>Read Write Property:</b> Layer mode. By default, the layer is in kFBLayerModeAdditive mode. Cannot be applied to the BaseAnimation Layer.
+	FBLayerRotationMode	LayerRotationMode;	//!< <b>Read Only Property:</b> Layer rotation mode. Cannot be applied to the BaseAnimation Layer.
+
+	AnimationLayer			*parentLayer;
+
+	std::vector<AnimationLayer*> sublayers;
 	std::vector<AnimationCurveNodeImpl*> curve_nodes;
 };
 
@@ -1582,6 +1742,12 @@ template <typename T> static OptionalError<Object*> parse(const Scene& scene, co
 	return obj;
 }
 
+static AnimationCurveNodeImpl *parseAnimationCurveNode(const Scene& scene, const Element& element)
+{
+	AnimationCurveNodeImpl *obj = new AnimationCurveNodeImpl(scene, element);
+
+	return obj;
+}
 
 static OptionalError<Object*> parseCluster(const Scene& scene, const Element& element)
 {
@@ -1673,6 +1839,32 @@ static OptionalError<Object*> parseMaterial(const Scene& scene, const Element& e
 	return material;
 }
 
+static OptionalError<Object*> parseAnimationStack(AnimationStackImpl *pstack)
+{
+	Element *pelem = (Element*) &pstack->element;
+	const Element* prop = findChild(*pelem, "Properties70");
+	
+	pstack->mLoopStart = 0;
+	pstack->mLoopStop = secondsToFbxTime(4.0);
+
+	if (prop) prop = prop->child;
+	while (prop)
+	{
+		if (prop->id == "P" && prop->first_property)
+		{
+			if (prop->first_property->value == "LocalStart")
+			{
+				pstack->mLoopStart = prop->getProperty(4)->getValue().toU64();
+			}
+			else if (prop->first_property->value == "LocalStop")
+			{
+				pstack->mLoopStop = prop->getProperty(4)->getValue().toU64();
+			}
+		}
+		prop = prop->sibling;
+	}
+	return pstack;
+}
 
 template<typename T> static bool parseTextArrayRaw(const Property& property, T* out, int max_size);
 
@@ -2070,7 +2262,6 @@ static OptionalError<Object*> parseAnimationCurve(const Scene& scene, const Elem
 
 	return curve.release();
 }
-
 
 static int getTriCountFromPoly(const std::vector<int>& indices, int* idx)
 {
@@ -2494,6 +2685,7 @@ static bool parseObjects(const Element& root, Scene* scene)
 			if (!obj.isError())
 			{
 				AnimationStackImpl* stack = (AnimationStackImpl*)obj.getValue();
+				parseAnimationStack(stack);
 				scene->m_animation_stacks.push_back(stack);
 			}
 		}
@@ -2507,7 +2699,8 @@ static bool parseObjects(const Element& root, Scene* scene)
 		}
 		else if (iter.second.element->id == "AnimationCurveNode")
 		{
-			obj = parse<AnimationCurveNodeImpl>(*scene, *iter.second.element);
+			obj = parseAnimationCurveNode(*scene, *iter.second.element);
+			//obj = parse<AnimationCurveNodeImpl>(*scene, *iter.second.element);
 		}
 		else if (iter.second.element->id == "Deformer")
 		{
@@ -2547,6 +2740,8 @@ static bool parseObjects(const Element& root, Scene* scene)
 					obj = parse<NullImpl>(*scene, *iter.second.element);
 				else if (class_prop->getValue() == "Root")
 					obj = parse<NullImpl>(*scene, *iter.second.element);
+				else if (class_prop->getValue() == "Camera")
+					obj = parse<CameraImpl>(*scene, *iter.second.element);
 			}
 		}
 		else if (iter.second.element->id == "Texture")
@@ -2584,9 +2779,24 @@ static bool parseObjects(const Element& root, Scene* scene)
 			case Object::Type::ANIMATION_CURVE_NODE:
 				if (parent->isNode())
 				{
+					Model *pModel = (Model*)parent;
+
 					AnimationCurveNodeImpl* node = (AnimationCurveNodeImpl*)child;
 					node->bone = parent;
 					node->bone_link_property = con.property;
+
+					pModel->mAnimationNodes.push_back(node);
+
+					if (con.property == ANIMATIONNODE_TYPENAME_TRANSLATION)
+						node->mode = ANIMATIONNODE_TYPE_TRANSLATION;
+					else if (con.property == ANIMATIONNODE_TYPENAME_ROTATION)
+						node->mode = ANIMATIONNODE_TYPE_ROTATION;
+					else if (con.property == ANIMATIONNODE_TYPENAME_SCALING)
+						node->mode = ANIMATIONNODE_TYPE_SCALING;
+					else if (con.property == ANIMATIONNODE_TYPENAME_VISIBILITY)
+						node->mode = ANIMATIONNODE_TYPE_VISIBILITY;
+					else if (con.property == ANIMATIONNODE_TYPENAME_FIELDOFVIEW)
+						node->mode = ANIMATIONNODE_TYPE_FIELD_OF_VIEW;
 				}
 				break;
 		}
@@ -2669,11 +2879,37 @@ static bool parseObjects(const Element& root, Scene* scene)
 				}
 				break;
 			}
+			case Object::Type::ANIMATION_STACK:
+			{
+				if (child->getType() == Object::Type::ANIMATION_LAYER)
+				{
+					AnimationLayerImpl *player = (AnimationLayerImpl*)child;
+					player->InitProperties();
+
+					((AnimationStackImpl*)parent)->mLayers.push_back(player);
+				}
+			}break;
 			case Object::Type::ANIMATION_LAYER:
 			{
 				if (child->getType() == Object::Type::ANIMATION_CURVE_NODE)
 				{
-					((AnimationLayerImpl*)parent)->curve_nodes.push_back((AnimationCurveNodeImpl*)child);
+					AnimationCurveNodeImpl *pNode = (AnimationCurveNodeImpl*)child;
+					pNode->mLayer = (AnimationLayerImpl*)parent;
+
+					((AnimationLayerImpl*)parent)->curve_nodes.push_back(pNode);
+
+					// check if node is this layer weight
+					if (con.property == "Weight")
+					{
+						((AnimationLayerImpl*)parent)->weightAnimNode = pNode;
+					}
+				}
+				else if (child->getType() == Object::Type::ANIMATION_LAYER)
+				{
+					AnimationLayerImpl *pChildLayer = (AnimationLayerImpl*)child;
+					
+					pChildLayer->parentLayer = (AnimationLayer*)parent;
+					((AnimationLayerImpl*)parent)->sublayers.push_back(pChildLayer);
 				}
 			}
 			break;
@@ -2720,50 +2956,54 @@ static bool parseObjects(const Element& root, Scene* scene)
 				return false;
 			}
 		}
+		else if (obj->getType() == Object::Type::ANIMATION_STACK)
+		{
+			((AnimationStackImpl*)iter.second.object)->sortLayers();
+		}
 	}
 
 	return true;
 }
 
 
-RotationOrder Object::getRotationOrder() const
+RotationOrder Model::getRotationOrder() const
 {
 	// This assumes that the default rotation order is EULER_XYZ.
 	return (RotationOrder) resolveEnumProperty(*this, "RotationOrder", (int) RotationOrder::EULER_XYZ);
 }
 
 
-Vec3 Object::getRotationOffset() const
+Vec3 Model::getRotationOffset() const
 {
 	return resolveVec3Property(*this, "RotationOffset", {0, 0, 0});
 }
 
 
-Vec3 Object::getRotationPivot() const
+Vec3 Model::getRotationPivot() const
 {
 	return resolveVec3Property(*this, "RotationPivot", {0, 0, 0});
 }
 
 
-Vec3 Object::getPostRotation() const
+Vec3 Model::getPostRotation() const
 {
 	return resolveVec3Property(*this, "PostRotation", {0, 0, 0});
 }
 
 
-Vec3 Object::getScalingOffset() const
+Vec3 Model::getScalingOffset() const
 {
 	return resolveVec3Property(*this, "ScalingOffset", {0, 0, 0});
 }
 
 
-Vec3 Object::getScalingPivot() const
+Vec3 Model::getScalingPivot() const
 {
 	return resolveVec3Property(*this, "ScalingPivot", {0, 0, 0});
 }
 
 
-Matrix Object::evalLocal(const Vec3& translation, const Vec3& rotation) const
+Matrix Model::evalLocal(const Vec3& translation, const Vec3& rotation) const
 {
 	Vec3 scaling = getLocalScaling();
 	Vec3 rotation_pivot = getRotationPivot();
@@ -2805,36 +3045,37 @@ Matrix Object::evalLocal(const Vec3& translation, const Vec3& rotation) const
 }
 
 
-Vec3 Object::getLocalTranslation() const
+Vec3 Model::getLocalTranslation() const
 {
 	return resolveVec3Property(*this, "Lcl Translation", {0, 0, 0});
 }
 
 
-Vec3 Object::getPreRotation() const
+Vec3 Model::getPreRotation() const
 {
 	return resolveVec3Property(*this, "PreRotation", {0, 0, 0});
 }
 
 
-Vec3 Object::getLocalRotation() const
+Vec3 Model::getLocalRotation() const
 {
 	return resolveVec3Property(*this, "Lcl Rotation", {0, 0, 0});
 }
 
 
-Vec3 Object::getLocalScaling() const
+Vec3 Model::getLocalScaling() const
 {
 	return resolveVec3Property(*this, "Lcl Scaling", {1, 1, 1});
 }
 
 
-Matrix Object::getGlobalTransform() const
+Matrix Model::getGlobalTransform() const
 {
 	const Object* parent = getParent();
-	if (!parent) return evalLocal(getLocalTranslation(), getLocalRotation());
+	if (!parent || !parent->isNode()) return evalLocal(getLocalTranslation(), getLocalRotation());
 
-	return parent->getGlobalTransform() * evalLocal(getLocalTranslation(), getLocalRotation());
+	Model *pParentModel = (Model*)parent;
+	return pParentModel->getGlobalTransform() * evalLocal(getLocalTranslation(), getLocalRotation());
 }
 
 
@@ -2918,7 +3159,6 @@ Object* Object::getParent() const
 	return parent;
 }
 
-
 IScene* load(const u8* data, int size)
 {
 	std::unique_ptr<Scene> scene = std::make_unique<Scene>();
@@ -2950,34 +3190,88 @@ const char* getError()
 	return Error::s_message;
 }
 
-const Object *lookForObjectName(const ofbx::Object& object, const char *name)
+Model *lookForModelName(ofbx::Model *pObject, const char *name)
 {
-	if (true == object.isNode())
+	if (true == pObject->isNode())
 	{
-		if (0 == strcmp(object.name, name))
+		if (0 == strcmp(pObject->name, name))
 		{
-			return &object;
+			return pObject;
 		}
 	}
 
 	int i = 0;
-	while (ofbx::Object* child = object.resolveObjectLink(i))
+	while (ofbx::Object* child = pObject->resolveObjectLink(i))
 	{
-		const Object *pObj = lookForObjectName(*child, name);
-		if (nullptr != pObj)
-			return pObj;
-
+		if (child->isNode())
+		{
+			Model *pObj = lookForModelName( (Model*) child, name);
+			if (nullptr != pObj)
+				return pObj;
+		}
+		
 		++i;
 	}
 	return nullptr;
 }
 
-const Object *findObjectByLabelName(IScene *pScene, const char *name, const ofbx::Object *pRoot)
+Model *FindModelByLabelName(IScene *pScene, const char *name, const ofbx::Object *pRoot)
 {
 	const ofbx::Object* root = (nullptr == pRoot) ? pScene->getRoot() : pRoot;
 	if (root) 
-		return lookForObjectName(*root, name);
+		return lookForModelName( (Model*) root, name);
 
+	return nullptr;
+}
+
+
+bool AnimationStackImpl::sortLayers()
+{
+	std::sort(begin(mLayers), end(mLayers), [](AnimationLayer *a, AnimationLayer *b)->bool {
+
+		AnimationLayerImpl *implA = (AnimationLayerImpl*)a;
+		AnimationLayerImpl *implB = (AnimationLayerImpl*)b;
+
+		return (implA->mLayerID < implB->mLayerID);
+	});
+
+	return true;
+}
+
+const int Model::GetAnimationNodeCount() const
+{
+	return (int)mAnimationNodes.size();
+}
+
+const AnimationCurveNode *Model::GetAnimationNode(int index) const
+{
+	return mAnimationNodes[index];
+}
+
+const AnimationCurveNode *Model::FindAnimationNode(const char *key, const AnimationLayer *pLayer) const
+{
+	for (auto iter = begin(mAnimationNodes); iter != end(mAnimationNodes); ++iter)
+	{
+		AnimationCurveNodeImpl *pNode = (AnimationCurveNodeImpl*)*iter;
+		
+		if (0 == strcmp(pNode->name, key) && pNode->mLayer == pLayer)
+		{
+			return pNode;
+		}
+	}
+	return nullptr;
+}
+
+const AnimationCurveNode *Model::FindAnimationNodeByType(const int typeId, const AnimationLayer *pLayer) const
+{
+	for (auto iter = begin(mAnimationNodes); iter != end(mAnimationNodes); ++iter)
+	{
+		AnimationCurveNodeImpl *pNode = (AnimationCurveNodeImpl*)*iter;
+		if (typeId == pNode->mode && pNode->mLayer == pLayer)
+		{
+			return pNode;
+		}
+	}
 	return nullptr;
 }
 

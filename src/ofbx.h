@@ -1,5 +1,6 @@
 #pragma once
 
+#include <vector>
 
 namespace ofbx
 {
@@ -22,14 +23,10 @@ struct Vec2
 };
 
 
-union Vec3
+
+struct Vec3
 {
-	double	values[3];
-	
-	struct
-	{
-		double x, y, z;
-	};
+	double x, y, z;
 };
 
 
@@ -209,6 +206,35 @@ enum EDataIndex
 	eTCBBias = 2			//!< Index of Bias, TCB tangent mode.
 };
 
+/**
+*	Layer mode.
+*/
+enum FBLayerMode	{
+	kFBLayerModeInvalidIndex = -1,	//!< Invalid value
+	kFBLayerModeAdditive = 0,		//!< Layer value will be added to the other layers to computed the final value.
+	kFBLayerModeOverride,			//!< Layer value will override the value of the other precedent layers.
+	kFBLayerModeOverridePassthrough	//!< If the layer has a weigth of 75%, the precedent layers will have a combined effect of 25% on the final value. Setting the weigth to 100% is similar to setting the layer in override.
+};
+
+/**
+*	Rotation mode for layer.
+*/
+enum FBLayerRotationMode	{
+	kFBLayerRotationModeInvalidIndex = -1,		//!< Invalid value
+	kFBLayerRotationModeEulerRotation = 0,	//!< The rotation will be computed component by component.
+	kFBLayerRotationModeQuaternionRotation	//!< The rotation will be computed using quaternion.
+};
+
+enum AnimationNodeType
+{
+	ANIMATIONNODE_TYPE_CUSTOM,
+	ANIMATIONNODE_TYPE_TRANSLATION,
+	ANIMATIONNODE_TYPE_ROTATION,
+	ANIMATIONNODE_TYPE_SCALING,
+	ANIMATIONNODE_TYPE_VISIBILITY,
+	ANIMATIONNODE_TYPE_FIELD_OF_VIEW
+};
+
 struct AnimationCurveNode;
 struct AnimationLayer;
 struct Scene;
@@ -222,10 +248,13 @@ struct Object
 		ROOT,
 		GEOMETRY,
 		MATERIAL,
+		SHADER,
 		MESH,
 		TEXTURE,
 		LIMB_NODE,
 		NULL_NODE,
+		CAMERA,
+		LIGHT,
 		NODE_ATTRIBUTE,
 		CLUSTER,
 		SKIN,
@@ -245,19 +274,7 @@ struct Object
 	Object* resolveObjectLink(Type type, const char* property, int idx) const;
 	Object* resolveObjectLinkReverse(Type type) const;
 	Object* getParent() const;
-
-    RotationOrder getRotationOrder() const;
-	Vec3 getRotationOffset() const;
-	Vec3 getRotationPivot() const;
-	Vec3 getPostRotation() const;
-	Vec3 getScalingOffset() const;
-	Vec3 getScalingPivot() const;
-	Vec3 getPreRotation() const;
-	Vec3 getLocalTranslation() const;
-	Vec3 getLocalRotation() const;
-	Vec3 getLocalScaling() const;
-	Matrix getGlobalTransform() const;
-	Matrix evalLocal(const Vec3& translation, const Vec3& rotation) const;
+	
 	bool isNode() const { return is_node; }
 
 
@@ -270,8 +287,10 @@ struct Object
 	char name[128];
 	const IElement& element;
 	const Object* node_attribute;
+	const void *user_data;
 
 protected:
+	
 	bool is_node;
 	const Scene& scene;
 };
@@ -361,7 +380,46 @@ struct Geometry : Object
 };
 
 
-struct Mesh : Object
+struct Model : Object
+{
+
+	Model(const Scene& _scene, const IElement& _element);
+
+	/*
+	Vec3 getLocalTranslation() const;
+	Vec3 getLocalRotation() const;
+	Vec3 getLocalScaling() const;
+
+	AnimationCurveNode *getLocalTranslationAnimNode() const;
+	AnimationCurveNode *getLocalRotationAnimNode() const;
+	AnimationCurveNode *getLocalScalingAnimNode() const;
+	*/
+	RotationOrder getRotationOrder() const;
+	Vec3 getRotationOffset() const;
+	Vec3 getRotationPivot() const;
+	Vec3 getPostRotation() const;
+	Vec3 getScalingOffset() const;
+	Vec3 getScalingPivot() const;
+	Vec3 getPreRotation() const;
+	Vec3 getLocalTranslation() const;
+	Vec3 getLocalRotation() const;
+	Vec3 getLocalScaling() const;
+	Matrix getGlobalTransform() const;
+	Matrix evalLocal(const Vec3& translation, const Vec3& rotation) const;
+
+	const int GetAnimationNodeCount() const;
+	const AnimationCurveNode *GetAnimationNode(int index) const;
+
+	// find nodes by name or by typeId, connected to specified layer. with multilayer or multitake it could be more than one translation node
+
+	const AnimationCurveNode *FindAnimationNode(const char *name, const AnimationLayer *pLayer) const;
+	// fast way to look for location translation, rotation, visibility, etc.
+	const AnimationCurveNode *FindAnimationNodeByType(const int typeId, const	AnimationLayer *pLayer) const;
+
+	std::vector<AnimationCurveNode*>		mAnimationNodes;
+};
+
+struct Mesh : Model
 {
 	static const Type s_type = Type::MESH;
 
@@ -379,6 +437,11 @@ struct AnimationStack : Object
 	static const Type s_type = Type::ANIMATION_STACK;
 
 	AnimationStack(const Scene& _scene, const IElement& _element);
+	
+	virtual i64		getLoopStart() const = 0;
+	virtual i64		getLoopStop() const = 0;
+
+	virtual int getLayerCount() const = 0;
 	virtual const AnimationLayer* getLayer(int index) const = 0;
 };
 
@@ -391,6 +454,17 @@ struct AnimationLayer : Object
 
 	virtual const AnimationCurveNode* getCurveNode(int index) const = 0;
 	virtual const AnimationCurveNode* getCurveNode(const Object& bone, const char* property) const = 0;
+
+	virtual bool isMute() const = 0;
+	virtual bool isSolo() const = 0;
+
+	// TODO: weight could be animated !!
+	virtual double getWeight() const = 0;
+	// if node is assigned, means we should evalute value from animation curve
+	virtual AnimationCurveNode *getWeightAnimNode() const = 0;
+
+	virtual int getSubLayerCount() const = 0;
+	virtual const AnimationLayer *getSubLayer(int index) const = 0;
 };
 
 
@@ -417,6 +491,11 @@ struct AnimationCurveNode : Object
 
 	virtual Vec3 getNodeLocalTransform(double time) const = 0;
 	virtual const Object* getBone() const = 0;
+
+	virtual AnimationLayer *getLayer() const = 0;
+
+	virtual int getCurveCount() const = 0;
+	virtual const AnimationCurve *getCurve(int index) const = 0;
 };
 
 
@@ -453,6 +532,6 @@ protected:
 IScene* load(const u8* data, int size);
 const char* getError();
 
-const Object *findObjectByLabelName(IScene *pScene, const char *name, const ofbx::Object *pRoot=nullptr);
+Model *FindModelByLabelName(IScene *pScene, const char *name, const ofbx::Object *pRoot=nullptr);
 
 } // namespace ofbx
