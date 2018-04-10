@@ -461,6 +461,7 @@ Object::Object(const Scene& _scene, const IElement& _element)
 	, is_node(false)
 	, node_attribute(nullptr)
 	, user_data(nullptr)
+	, Selected(false)
 {
 	auto& e = (Element&)_element;
 	if (e.first_property && e.first_property->next)
@@ -479,6 +480,25 @@ Model::Model(const Scene& _scene, const IElement& _element)
 	is_node = true;
 }
 
+Camera::Camera(const Scene& _scene, const IElement& _element)
+: Model(_scene, _element)
+{}
+
+Light::Light(const Scene& _scene, const IElement& _element)
+: Model(_scene, _element)
+{}
+
+ModelNull::ModelNull(const Scene& _scene, const IElement& _element)
+: Model(_scene, _element)
+{}
+
+ModelRoot::ModelRoot(const Scene& _scene, const IElement& _element)
+: Model(_scene, _element)
+{}
+
+ModelSkeleton::ModelSkeleton(const Scene& _scene, const IElement& _element)
+: Model(_scene, _element)
+{}
 
 static bool decompress(const u8* in, size_t in_size, u8* out, size_t out_size)
 {
@@ -1083,35 +1103,86 @@ struct MaterialImpl : Material
 };
 
 
-struct LimbNodeImpl : Model
+struct LimbNodeImpl : ModelSkeleton
 {
 	LimbNodeImpl(const Scene& _scene, const IElement& _element)
-		: Model(_scene, _element)
+		: ModelSkeleton(_scene, _element)
 	{
 		is_node = true;
+		mSize = 100.0;
 	}
 	Type getType() const override { return Type::LIMB_NODE; }
+
+	const double getSize() const override
+	{
+		return mSize;
+	}
+	const Vec3 getColor() const override
+	{
+		return mColor;
+	}
+
+	double		mSize;
+	Vec3		mColor;
 };
 
 
-struct NullImpl : Model
+struct NullImpl : ModelNull
 {
 	NullImpl(const Scene& _scene, const IElement& _element)
-		: Model(_scene, _element)
+		: ModelNull(_scene, _element)
 	{
 		is_node = true;
+		mSize = 100.0;
 	}
 	Type getType() const override { return Type::NULL_NODE; }
+
+
+	const double getSize() const override { return mSize; }
+
+	double mSize;
 };
 
-struct CameraImpl : Model
+struct CameraImpl : Camera
 {
 	CameraImpl(const Scene& _scene, const IElement& _element)
-	: Model(_scene, _element)
+	: Camera(_scene, _element)
 	{
 		is_node = true;
+		mProjectionType = kFBCameraTypePerspective;
+		mBackgroundColor = {0.8, 0.8, 0.8};
+		mFieldOfView = 40.0;
+		mNearPlane = 10.0;
+		mFarPlane = 4000.0;
 	}
 	Type getType() const override { return Type::CAMERA; }
+
+	const CameraType getCameraProjectionType() const override
+	{
+		return mProjectionType;
+	}
+	const Vec3 getBackgroundColor() const override
+	{
+		return mBackgroundColor;
+	}
+	const double getFieldOfView() const override
+	{
+		return mFieldOfView;
+	}
+	const double getNearPlane() const override
+	{
+		return mNearPlane;
+	}
+	const double getFarPlane() const override
+	{
+		return mFarPlane;
+	}
+
+	CameraType			mProjectionType;
+	Vec3		mBackgroundColor;
+	double		mFieldOfView;
+	double		mNearPlane;
+	double		mFarPlane;
 };
 
 NodeAttribute::NodeAttribute(const Scene& _scene, const IElement& _element)
@@ -1197,7 +1268,7 @@ struct GeometryImpl : Geometry
 		};
 
 		int in_polygon_idx = 0;
-		for (int i = 0; i < old_indices.size(); ++i)
+		for (int i = 0; i < (int)old_indices.size(); ++i)
 		{
 			int idx = getIdx(i);
 			if (in_polygon_idx <= 2)
@@ -1454,15 +1525,23 @@ struct TextureImpl : Texture
 };
 
 
-struct Root : Object
+struct Root : ModelRoot
 {
 	Root(const Scene& _scene, const IElement& _element)
-		: Object(_scene, _element)
+		: ModelRoot(_scene, _element)
 	{
 		copyString(name, "RootNode");
 		is_node = true;
+		mSize = 100.0;
 	}
 	Type getType() const override { return Type::ROOT; }
+
+	const double getSize() const override
+	{
+		return mSize;
+	}
+
+	double		mSize;
 };
 
 
@@ -1502,7 +1581,7 @@ struct Scene : IScene
 	const AnimationStack* getAnimationStack(int index) const override
 	{
 		assert(index >= 0);
-		assert(index < m_animation_stacks.size());
+		assert(index < (int)m_animation_stacks.size());
 		return m_animation_stacks[index];
 	}
 
@@ -1510,7 +1589,7 @@ struct Scene : IScene
 	const Mesh* getMesh(int index) const override
 	{
 		assert(index >= 0);
-		assert(index < m_meshes.size());
+		assert(index < (int)m_meshes.size());
 		return m_meshes[index];
 	}
 
@@ -1677,7 +1756,7 @@ struct AnimationLayerImpl : AnimationLayer
 
 	const AnimationCurveNode* getCurveNode(int index) const override
 	{
-		if (index >= curve_nodes.size() || index < 0) return nullptr;
+		if (index >= (int)curve_nodes.size() || index < 0) return nullptr;
 		return curve_nodes[index];
 	}
 
@@ -3190,40 +3269,27 @@ const char* getError()
 	return Error::s_message;
 }
 
-Model *lookForModelName(ofbx::Model *pObject, const char *name)
-{
-	if (true == pObject->isNode())
-	{
-		if (0 == strcmp(pObject->name, name))
-		{
-			return pObject;
-		}
-	}
-
-	int i = 0;
-	while (ofbx::Object* child = pObject->resolveObjectLink(i))
-	{
-		if (child->isNode())
-		{
-			Model *pObj = lookForModelName( (Model*) child, name);
-			if (nullptr != pObj)
-				return pObj;
-		}
-		
-		++i;
-	}
-	return nullptr;
-}
-
 Model *FindModelByLabelName(IScene *pScene, const char *name, const ofbx::Object *pRoot)
 {
-	const ofbx::Object* root = (nullptr == pRoot) ? pScene->getRoot() : pRoot;
-	if (root) 
-		return lookForModelName( (Model*) root, name);
+
+	const int objectCount = pScene->getAllObjectCount();
+	const Object *const *pObjects = pScene->getAllObjects();
+
+	for (int i = 0; i < objectCount; ++i)
+	{
+		const Object *pObject = pObjects[i];
+
+		if (true == pObject->isNode())
+		{
+			if (0 == strcmp(name, pObject->name))
+			{
+				return (Model*)pObject;
+			}
+		}
+	}
 
 	return nullptr;
 }
-
 
 bool AnimationStackImpl::sortLayers()
 {

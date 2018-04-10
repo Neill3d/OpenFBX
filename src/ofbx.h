@@ -235,6 +235,12 @@ enum AnimationNodeType
 	ANIMATIONNODE_TYPE_FIELD_OF_VIEW
 };
 
+enum CameraType
+{
+	kFBCameraTypePerspective,
+	kFBCameraTypeOrhogonal
+};
+
 struct AnimationCurveNode;
 struct AnimationLayer;
 struct Scene;
@@ -286,8 +292,10 @@ struct Object
 	u64 id;
 	char name[128];
 	const IElement& element;
-	const Object* node_attribute;
+	const Object* node_attribute;	// contains some specified class properties ontop of base class
 	const void *user_data;
+
+	bool Selected;
 
 protected:
 	
@@ -407,6 +415,8 @@ struct Model : Object
 	Matrix getGlobalTransform() const;
 	Matrix evalLocal(const Vec3& translation, const Vec3& rotation) const;
 
+	const bool getShow() const;
+
 	const int GetAnimationNodeCount() const;
 	const AnimationCurveNode *GetAnimationNode(int index) const;
 
@@ -431,6 +441,59 @@ struct Mesh : Model
 	virtual int getMaterialCount() const = 0;
 };
 
+struct ModelNull : Model
+{
+	static const Type s_type = Type::NULL_NODE;
+
+	ModelNull(const Scene& _scene, const IElement &_element);
+
+	// model null display size
+	virtual const double getSize() const = 0;
+};
+
+struct ModelRoot : Model
+{
+	static const Type s_type = Type::ROOT;
+
+	ModelRoot(const Scene& _scene, const IElement &_element);
+
+	// model null display size
+	virtual const double getSize() const = 0;
+};
+
+struct ModelSkeleton : Model
+{
+	static const Type s_type = Type::LIMB_NODE;
+
+	ModelSkeleton(const Scene& _scene, const IElement &_element);
+
+	// model null display size
+	virtual const double getSize() const = 0;
+	virtual const Vec3 getColor() const = 0;
+};
+
+struct Camera : Model
+{
+	static const Type s_type = Type::CAMERA;
+
+	Camera(const Scene& _scene, const IElement &_element);
+
+	// camera settings
+
+	// TODO: all these values could be animated
+	virtual const CameraType getCameraProjectionType() const = 0;
+	virtual const Vec3 getBackgroundColor() const = 0;
+	virtual const double getFieldOfView() const = 0;
+	virtual const double getNearPlane() const = 0;
+	virtual const double getFarPlane() const = 0;
+};
+
+struct Light : Model
+{
+	static const Type s_type = Type::LIGHT;
+
+	Light(const Scene& _scene, const IElement &_element);
+};
 
 struct AnimationStack : Object
 {
