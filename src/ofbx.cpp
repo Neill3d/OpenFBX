@@ -107,7 +107,7 @@ static Vec3 operator-(const Vec3& v)
 }
 
 
-static Matrix operator*(const Matrix& lhs, const Matrix& rhs)
+Matrix operator*(const Matrix& lhs, const Matrix& rhs)
 {
 	Matrix res;
 	for (int j = 0; j < 4; ++j)
@@ -460,7 +460,8 @@ Object::Object(const Scene& _scene, const IElement& _element)
 	, element(_element)
 	, is_node(false)
 	, node_attribute(nullptr)
-	, user_data(nullptr)
+	, eval_data(0)
+	, render_data(0)
 	, Selected(false)
 {
 	auto& e = (Element&)_element;
@@ -478,6 +479,7 @@ Model::Model(const Scene& _scene, const IElement& _element)
 : Object(_scene, _element)
 {
 	is_node = true;
+	mParent = nullptr;
 }
 
 Camera::Camera(const Scene& _scene, const IElement& _element)
@@ -492,7 +494,7 @@ ModelNull::ModelNull(const Scene& _scene, const IElement& _element)
 : Model(_scene, _element)
 {}
 
-ModelRoot::ModelRoot(const Scene& _scene, const IElement& _element)
+SceneRoot::SceneRoot(const Scene& _scene, const IElement& _element)
 : Model(_scene, _element)
 {}
 
@@ -1110,6 +1112,9 @@ struct LimbNodeImpl : ModelSkeleton
 	{
 		is_node = true;
 		mSize = 100.0;
+		mColor.x = 0.85;
+		mColor.y = 0.85;
+		mColor.z = 0.20;
 	}
 	Type getType() const override { return Type::LIMB_NODE; }
 
@@ -1120,6 +1125,34 @@ struct LimbNodeImpl : ModelSkeleton
 	const Vec3 getColor() const override
 	{
 		return mColor;
+	}
+
+	void prepProperties()
+	{
+		if (nullptr != node_attribute)
+		{
+			Element *pelem = (Element*)&node_attribute->element;
+			const Element* prop = findChild(*pelem, "Properties70");
+
+			if (prop) prop = prop->child;
+			while (prop)
+			{
+				if (prop->id == "P" && prop->first_property)
+				{
+					if (prop->first_property->value == "Color")
+					{
+						mColor.x = prop->getProperty(4)->getValue().toDouble();
+						mColor.y = prop->getProperty(5)->getValue().toDouble();
+						mColor.z = prop->getProperty(6)->getValue().toDouble();
+					}
+					else if (prop->first_property->value == "Size")
+					{
+						mSize = prop->getProperty(4)->getValue().toDouble();
+					}
+				}
+				prop = prop->sibling;
+			}
+		}
 	}
 
 	double		mSize;
@@ -1139,6 +1172,28 @@ struct NullImpl : ModelNull
 
 
 	const double getSize() const override { return mSize; }
+
+	void prepProperties()
+	{
+		if (nullptr != node_attribute)
+		{
+			Element *pelem = (Element*)&node_attribute->element;
+			const Element* prop = findChild(*pelem, "Properties70");
+
+			if (prop) prop = prop->child;
+			while (prop)
+			{
+				if (prop->id == "P" && prop->first_property)
+				{
+					if (prop->first_property->value == "Size")
+					{
+						mSize = prop->getProperty(4)->getValue().toDouble();
+					}
+				}
+				prop = prop->sibling;
+			}
+		}
+	}
 
 	double mSize;
 };
@@ -1525,10 +1580,10 @@ struct TextureImpl : Texture
 };
 
 
-struct Root : ModelRoot
+struct Root : SceneRoot
 {
 	Root(const Scene& _scene, const IElement& _element)
-		: ModelRoot(_scene, _element)
+	: SceneRoot(_scene, _element)
 	{
 		copyString(name, "RootNode");
 		is_node = true;
@@ -1552,12 +1607,14 @@ struct Scene : IScene
 		enum Type
 		{
 			OBJECT_OBJECT,
-			OBJECT_PROPERTY
+			OBJECT_PROPERTY,
+			PROPERTY_PROPERTY
 		};
 
 		Type type;
 		u64 from;
 		u64 to;
+		DataView srcProperty;
 		DataView property;
 	};
 
@@ -2536,30 +2593,61 @@ static bool parseConnections(const Element& root, Scene* scene)
 	const Element* connection = connections->child;
 	while (connection)
 	{
-		if (!isString(connection->first_property)
-			|| !isLong(connection->first_property->next)
-			|| !isLong(connection->first_property->next->next))
+		if (!isString(connection->first_property) )
 		{
 			Error::s_message = "Invalid connection";
 			return false;
 		}
 
 		Scene::Connection c;
-		c.from = connection->first_property->next->value.toU64();
-		c.to = connection->first_property->next->next->value.toU64();
+		
 		if (connection->first_property->value == "OO")
 		{
-			c.type = Scene::Connection::OBJECT_OBJECT;
-		}
-		else if (connection->first_property->value == "OP")
-		{
-			c.type = Scene::Connection::OBJECT_PROPERTY;
-			if (!connection->first_property->next->next->next)
+			if ( !isLong(connection->first_property->next)
+				|| !isLong(connection->first_property->next->next) )
 			{
-				Error::s_message = "Invalid connection";
+				Error::s_message = "Invalid OO connection";
 				return false;
 			}
+
+			c.type = Scene::Connection::OBJECT_OBJECT;
+			c.from = connection->first_property->next->value.toU64();
+			c.to = connection->first_property->next->next->value.toU64();
+		}
+		else 
+		if (connection->first_property->value == "OP")
+		{
+			if (!isLong(connection->first_property->next)
+				|| !isLong(connection->first_property->next->next)
+				|| !connection->first_property->next->next->next)
+			{
+				Error::s_message = "Invalid OP connection";
+				return false;
+			}
+
+			c.type = Scene::Connection::OBJECT_PROPERTY;
+			c.from = connection->first_property->next->value.toU64();
+			c.to = connection->first_property->next->next->value.toU64();
 			c.property = connection->first_property->next->next->next->value;
+		}
+		else 
+		if (connection->first_property->value == "PP")
+		{
+
+			if (!isLong(connection->first_property->next)
+				|| !isString(connection->first_property->next->next)
+				|| !connection->first_property->next->next->next // long
+				|| !connection->first_property->next->next->next->next)
+			{
+				Error::s_message = "Invalid PP connection";
+				return false;
+			}
+
+			c.type = Scene::Connection::PROPERTY_PROPERTY;
+			c.from = connection->first_property->next->value.toU64();
+			c.srcProperty = connection->first_property->next->next->value;
+			c.to = connection->first_property->next->next->next->value.toU64();
+			c.property = connection->first_property->next->next->next->next->value;
 		}
 		else
 		{
@@ -3027,7 +3115,8 @@ static bool parseObjects(const Element& root, Scene* scene)
 	{
 		Object* obj = iter.second.object;
 		if (!obj) continue;
-		if(obj->getType() == Object::Type::CLUSTER)
+
+		if (Object::Type::CLUSTER == obj->getType())
 		{
 			if (!((ClusterImpl*)iter.second.object)->postprocess())
 			{
@@ -3035,9 +3124,35 @@ static bool parseObjects(const Element& root, Scene* scene)
 				return false;
 			}
 		}
-		else if (obj->getType() == Object::Type::ANIMATION_STACK)
+		else if (Object::Type::ANIMATION_STACK == obj->getType())
 		{
 			((AnimationStackImpl*)iter.second.object)->sortLayers();
+		}
+		else if (Object::Type::LIMB_NODE == obj->getType())
+		{
+			((LimbNodeImpl*)obj)->prepProperties();
+		}
+		else if (Object::Type::NULL_NODE == obj->getType())
+		{
+			((NullImpl*)obj)->prepProperties();
+		}
+
+		// pre-cache scene models hierarchy
+		if (true == obj->isNode())
+		{
+			int idx = 0;
+			Object *parent = obj->getParents(idx);
+			while (nullptr != parent)
+			{
+				if (parent->isNode()) // scene->m_root != parent
+				{
+					((Model*)obj)->mParent = (Model*)parent;
+					((Model*)parent)->mChildren.push_back((Model*)obj);
+				}
+				
+				idx += 1;
+				parent = obj->getParents(idx);
+			}
 		}
 	}
 
@@ -3054,7 +3169,7 @@ RotationOrder Model::getRotationOrder() const
 
 Vec3 Model::getRotationOffset() const
 {
-	return resolveVec3Property(*this, "RotationOffset", {0, 0, 0});
+	return resolveVec3Property(*this, "RotationOffset", {0.0, 0.0, 0.0});
 }
 
 
@@ -3081,14 +3196,31 @@ Vec3 Model::getScalingPivot() const
 	return resolveVec3Property(*this, "ScalingPivot", {0, 0, 0});
 }
 
-
-Matrix Model::evalLocal(const Vec3& translation, const Vec3& rotation) const
+bool VectorIsZero(const Vec3 &v)
 {
-	Vec3 scaling = getLocalScaling();
+	return (0.0 == v.x && 0.0 == v.y && 0.0 == v.z);
+}
+
+bool Model::evalLocal(Matrix &result, const Vec3& translation, const Vec3& rotation, const Vec3 &scaling) const
+{
+	//Vec3 scaling = getLocalScaling();
 	Vec3 rotation_pivot = getRotationPivot();
 	Vec3 scaling_pivot = getScalingPivot();
-	RotationOrder rotation_order = getRotationOrder();
+	Vec3 preRotation = { 0.0, 0.0, 0.0 }; // getPreRotation();
+	Vec3 postRotation = { 0.0, 0.0, 0.0 }; // getPostRotation();
+	Vec3 rotationOffset = getRotationOffset();
+	Vec3 scalingOffset = getScalingOffset();
+	RotationOrder rotation_order = RotationOrder::EULER_XYZ;
+	
+	bool enableRotationDOF = resolveBoolProperty(*this, "RotationActive", false);
 
+	if (enableRotationDOF)
+	{
+		rotation_order = getRotationOrder();
+		preRotation = getPreRotation();
+		postRotation = getPostRotation();
+	}
+	
 	Matrix s = makeIdentity();
 	s.m[0] = scaling.x;
 	s.m[5] = scaling.y;
@@ -3098,29 +3230,43 @@ Matrix Model::evalLocal(const Vec3& translation, const Vec3& rotation) const
 	setTranslation(translation, &t);
 
 	Matrix r = getRotationMatrix(rotation, rotation_order);
-	Matrix r_pre = getRotationMatrix(getPreRotation(), RotationOrder::EULER_XYZ);
-	Matrix r_post_inv = getRotationMatrix(-getPostRotation(), RotationOrder::EULER_ZYX);
 
-	Matrix r_off = makeIdentity();
-	setTranslation(getRotationOffset(), &r_off);
+	// choose between simple and complex calculation way
 
-	Matrix r_p = makeIdentity();
-	setTranslation(rotation_pivot, &r_p);
+	if (VectorIsZero(rotation_pivot) && VectorIsZero(scaling_pivot)
+		&& VectorIsZero(preRotation) && VectorIsZero(postRotation)
+		&& VectorIsZero(rotationOffset) && VectorIsZero(scalingOffset))
+	{
+		result = t * r * s;
+	}
+	else
+	{
+		Matrix r_pre = getRotationMatrix(preRotation, RotationOrder::EULER_XYZ);
+		Matrix r_post_inv = getRotationMatrix(-postRotation, RotationOrder::EULER_ZYX);
 
-	Matrix r_p_inv = makeIdentity();
-	setTranslation(-rotation_pivot, &r_p_inv);
+		Matrix r_off = makeIdentity();
+		setTranslation(rotationOffset, &r_off);
 
-	Matrix s_off = makeIdentity();
-	setTranslation(getScalingOffset(), &s_off);
+		Matrix r_p = makeIdentity();
+		setTranslation(rotation_pivot, &r_p);
 
-	Matrix s_p = makeIdentity();
-	setTranslation(scaling_pivot, &s_p);
+		Matrix r_p_inv = makeIdentity();
+		setTranslation(-rotation_pivot, &r_p_inv);
 
-	Matrix s_p_inv = makeIdentity();
-	setTranslation(-scaling_pivot, &s_p_inv);
+		Matrix s_off = makeIdentity();
+		setTranslation(scalingOffset, &s_off);
 
-	// http://help.autodesk.com/view/FBX/2017/ENU/?guid=__files_GUID_10CDD63C_79C1_4F2D_BB28_AD2BE65A02ED_htm
-	return t * r_off * r_p * r_pre * r * r_post_inv * r_p_inv * s_off * s_p * s * s_p_inv;
+		Matrix s_p = makeIdentity();
+		setTranslation(scaling_pivot, &s_p);
+
+		Matrix s_p_inv = makeIdentity();
+		setTranslation(-scaling_pivot, &s_p_inv);
+
+		// http://help.autodesk.com/view/FBX/2017/ENU/?guid=__files_GUID_10CDD63C_79C1_4F2D_BB28_AD2BE65A02ED_htm
+		result = t * r_off * r_p * r_pre * r * r_post_inv * r_p_inv * s_off * s_p * s * s_p_inv;
+	}
+	
+	return true;
 }
 
 
@@ -3150,11 +3296,20 @@ Vec3 Model::getLocalScaling() const
 
 Matrix Model::getGlobalTransform() const
 {
-	const Object* parent = getParent();
-	if (!parent || !parent->isNode()) return evalLocal(getLocalTranslation(), getLocalRotation());
+	const Object* parent = getParents(0);
+	if (!parent || !parent->isNode()) 
+	{
+		Matrix tm;
+		evalLocal(tm, getLocalTranslation(), getLocalRotation(), getLocalScaling());
+		return tm;
+	}
 
 	Model *pParentModel = (Model*)parent;
-	return pParentModel->getGlobalTransform() * evalLocal(getLocalTranslation(), getLocalRotation());
+	Matrix tm;
+	evalLocal(tm, getLocalTranslation(), getLocalRotation(), getLocalScaling());
+	tm = pParentModel->getGlobalTransform() * tm;
+
+	return tm;
 }
 
 
@@ -3220,18 +3375,25 @@ Object* Object::resolveObjectLink(Object::Type type, const char* property, int i
 }
 
 
-Object* Object::getParent() const
+Object* Object::getParents(int idx) const
 {
+	int counter = 0;
+
 	Object* parent = nullptr;
 	for (auto& connection : scene.m_connections)
 	{
-		if (connection.from == id)
+		if (Scene::Connection::OBJECT_OBJECT == connection.type && connection.from == id)
 		{
 			Object* obj = scene.m_object_map.find(connection.to)->second.object;
 			if (obj && obj->is_node)
 			{
-				assert(parent == nullptr);
-				parent = obj;
+				if (counter == idx)
+				{
+					assert(parent == nullptr);
+					parent = obj;
+					break;
+				}
+				counter += 1;
 			}
 		}
 	}

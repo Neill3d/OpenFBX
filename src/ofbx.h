@@ -42,6 +42,7 @@ struct Matrix
 	double m[16]; // last 4 are translation
 };
 
+Matrix operator * (const Matrix&, const Matrix&);
 
 struct Quat
 {
@@ -279,7 +280,7 @@ struct Object
 	Object* resolveObjectLink(int idx) const;
 	Object* resolveObjectLink(Type type, const char* property, int idx) const;
 	Object* resolveObjectLinkReverse(Type type) const;
-	Object* getParent() const;
+	Object* getParents(int idx) const;
 	
 	bool isNode() const { return is_node; }
 
@@ -293,7 +294,9 @@ struct Object
 	char name[128];
 	const IElement& element;
 	const Object* node_attribute;	// contains some specified class properties ontop of base class
-	const void *user_data;
+
+	const void *eval_data;
+	const void *render_data;
 
 	bool Selected;
 
@@ -413,7 +416,15 @@ struct Model : Object
 	Vec3 getLocalRotation() const;
 	Vec3 getLocalScaling() const;
 	Matrix getGlobalTransform() const;
-	Matrix evalLocal(const Vec3& translation, const Vec3& rotation) const;
+	bool evalLocal(Matrix &result, const Vec3& translation, const Vec3& rotation, const Vec3 &scaling) const;
+
+	Model *Parent() const {
+		return mParent;
+	}
+
+	const std::vector<Model*> &Children() const {
+		return mChildren;
+	}
 
 	const bool getShow() const;
 
@@ -426,6 +437,9 @@ struct Model : Object
 	// fast way to look for location translation, rotation, visibility, etc.
 	const AnimationCurveNode *FindAnimationNodeByType(const int typeId, const	AnimationLayer *pLayer) const;
 
+	//
+	Model		*mParent;
+	std::vector<Model*>						mChildren;
 	std::vector<AnimationCurveNode*>		mAnimationNodes;
 };
 
@@ -451,11 +465,12 @@ struct ModelNull : Model
 	virtual const double getSize() const = 0;
 };
 
-struct ModelRoot : Model
+// core root element, scene root
+struct SceneRoot : Model
 {
 	static const Type s_type = Type::ROOT;
 
-	ModelRoot(const Scene& _scene, const IElement &_element);
+	SceneRoot(const Scene& _scene, const IElement &_element);
 
 	// model null display size
 	virtual const double getSize() const = 0;
@@ -486,6 +501,9 @@ struct Camera : Model
 	virtual const double getFieldOfView() const = 0;
 	virtual const double getNearPlane() const = 0;
 	virtual const double getFarPlane() const = 0;
+
+	// pre-cached or controled by transformer
+	Matrix		mModelView;
 };
 
 struct Light : Model
