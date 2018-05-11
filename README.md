@@ -15,3 +15,8 @@ Library is multiplatform as well.
 Work in Progress!
 
 [![OpenFBX](https://github.com/Neill3d/OpenFBX/blob/master/Doc/Images/2018-05-11_165517.jpg)]()
+
+## Saving FBX files
+
+There is another repository with capability to save FBX files (at least Ascii version works) - https://github.com/Neill3d/fbx
+
