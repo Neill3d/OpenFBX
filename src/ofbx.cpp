@@ -1,23 +1,42 @@
+
+// ofbx.cpp
+//
+// Original OpenFBX by Mikulas Florek (https://github.com/nem0/OpenFBX)
+//
+// Modified by Sergei <Neill3d> Solokhin (https://github.com/Neill3d/OpenFBX)
+//	
+
 #include "ofbx.h"
 #include "miniz.h"
 #include <cassert>
-#include <cmath>
+
 #include <ctype.h>
 #include <memory>
 #include <unordered_map>
 #include <vector>
 #include <algorithm>
 
+#include "OFBMath.h"
 
-#define ANIMATIONNODE_TYPENAME_TRANSLATION	"Lcl Translation"
-#define ANIMATIONNODE_TYPENAME_ROTATION		"Lcl Rotation"
-#define ANIMATIONNODE_TYPENAME_SCALING		"Lcl Scaling"
-#define ANIMATIONNODE_TYPENAME_VISIBILITY	"Visibility"
-#define ANIMATIONNODE_TYPENAME_FIELDOFVIEW	"Field Of View"
+#define _USE_MATH_DEFINES // for C++  
+#include <math.h> 
+
+static double gsOrthoCameraScale = 178.0;
+
+#define MATH_PI_DIV_180  3.1415926535897932384626433832795028 / 180.0
+#define MATH_180_DIV_PI  180.0 / 3.1415926535897932384626433832795028
+#define HFOV2VFOV(h, ar) (2.0 * atan((ar) * tan( (h * MATH_PI_DIV_180) * 0.5)) * MATH_180_DIV_PI) //ar : aspectY / aspectX
+#define VFOV2HFOV(v, ar) (2.0 * atan((ar) * tan( (v * MATH_PI_DIV_180) * 0.5)) * MATH_180_DIV_PI) //ar : aspectX / aspectY
 
 namespace ofbx
 {
 
+	EvaluationInfo	gDisplayInfo;
+
+	EvaluationInfo &GetDisplayInfo()
+	{
+		return gDisplayInfo;
+	}
 
 struct Error
 {
@@ -47,6 +66,10 @@ template <typename T> struct OptionalError
 	{
 	}
 
+	OptionalError(T _value, bool _error)
+		: value(_value)
+			, is_error(_error)
+	{}
 
 	T getValue() const
 	{
@@ -91,137 +114,6 @@ struct Cursor
 	const u8* begin;
 	const u8* end;
 };
-
-
-static void setTranslation(const Vec3& t, Matrix* mtx)
-{
-	mtx->m[12] = t.x;
-	mtx->m[13] = t.y;
-	mtx->m[14] = t.z;
-}
-
-
-static Vec3 operator-(const Vec3& v)
-{
-	return {-v.x, -v.y, -v.z};
-}
-
-
-Matrix operator*(const Matrix& lhs, const Matrix& rhs)
-{
-	Matrix res;
-	for (int j = 0; j < 4; ++j)
-	{
-		for (int i = 0; i < 4; ++i)
-		{
-			double tmp = 0;
-			for (int k = 0; k < 4; ++k)
-			{
-				tmp += lhs.m[i + k * 4] * rhs.m[k + j * 4];
-			}
-			res.m[i + j * 4] = tmp;
-		}
-	}
-	return res;
-}
-
-
-static Matrix makeIdentity()
-{
-	return {1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1};
-}
-
-
-static Matrix rotationX(double angle)
-{
-	Matrix m = makeIdentity();
-	double c = cos(angle);
-	double s = sin(angle);
-
-	m.m[5] = m.m[10] = c;
-	m.m[9] = -s;
-	m.m[6] = s;
-
-	return m;
-}
-
-
-static Matrix rotationY(double angle)
-{
-	Matrix m = makeIdentity();
-	double c = cos(angle);
-	double s = sin(angle);
-
-	m.m[0] = m.m[10] = c;
-	m.m[8] = s;
-	m.m[2] = -s;
-
-	return m;
-}
-
-
-static Matrix rotationZ(double angle)
-{
-	Matrix m = makeIdentity();
-	double c = cos(angle);
-	double s = sin(angle);
-
-	m.m[0] = m.m[5] = c;
-	m.m[4] = -s;
-	m.m[1] = s;
-
-	return m;
-}
-
-
-static Matrix getRotationMatrix(const Vec3& euler, RotationOrder order)
-{
-	const double TO_RAD = 3.1415926535897932384626433832795028 / 180.0;
-	Matrix rx = rotationX(euler.x * TO_RAD);
-	Matrix ry = rotationY(euler.y * TO_RAD);
-	Matrix rz = rotationZ(euler.z * TO_RAD);
-	switch (order) {
-		default:
-		case RotationOrder::SPHERIC_XYZ:
-			assert(false);
-		case RotationOrder::EULER_XYZ:
-			return rz * ry * rx;
-		case RotationOrder::EULER_XZY:
-			return ry * rz * rx;
-		case RotationOrder::EULER_YXZ:
-			return rz * rx * ry;
-		case RotationOrder::EULER_YZX:
-			return rx * rz * ry;
-		case RotationOrder::EULER_ZXY:
-			return ry * rx * rz;
-		case RotationOrder::EULER_ZYX:
-			return rx * ry * rz;
-	}
-}
-
-
-double fbxTimeToSeconds(i64 value)
-{
-	return double(value) / 46186158000L;
-}
-
-
-static i64 secondsToFbxTime(double value)
-{
-	return i64(value * 46186158000L);
-}
-
-
-static Vec3 operator*(const Vec3& v, float f)
-{
-	return {v.x * f, v.y * f, v.z * f};
-}
-
-
-static Vec3 operator+(const Vec3& a, const Vec3& b)
-{
-	return {a.x + b.x, a.y + b.y, a.z + b.z};
-}
 
 
 template <int SIZE> static bool copyString(char (&destination)[SIZE], const char* source)
@@ -424,7 +316,7 @@ static double resolveDoubleProperty(const Object& object, const char* name, cons
 	return x->value.toDouble();
 }
 
-static Vec3 resolveVec3Property(const Object& object, const char* name, const Vec3& default_value)
+static OFBVector3 resolveVec3Property(const Object& object, const char* name, const OFBVector3& default_value)
 {
 	Element* element = (Element*)resolveProperty(object, name);
 	if (!element) return default_value;
@@ -462,7 +354,8 @@ Object::Object(const Scene& _scene, const IElement& _element)
 	, node_attribute(nullptr)
 	, eval_data(0)
 	, render_data(0)
-	, Selected(false)
+	//, Selected(false)
+	, mProperties(this)
 {
 	auto& e = (Element&)_element;
 	if (e.first_property && e.first_property->next)
@@ -473,6 +366,12 @@ Object::Object(const Scene& _scene, const IElement& _element)
 	{
 		name[0] = '\0';
 	}
+
+	//Name.Init(this, "Name");
+	Selected.Init(this, "Selected");
+
+	//Name.SetPropertyValue("Object");
+	Selected.SetPropertyValue(false);
 }
 
 Model::Model(const Scene& _scene, const IElement& _element)
@@ -480,6 +379,46 @@ Model::Model(const Scene& _scene, const IElement& _element)
 {
 	is_node = true;
 	mParent = nullptr;
+	mFirstChild = nullptr;
+
+	mNext = nullptr;
+	mPrev = nullptr;
+
+	Show.Init(this, "Show");
+	Translation.Init(this, "Lcl Translation");
+	Rotation.Init(this, "Lcl Rotation");
+	Scaling.Init(this, "Lcl Scaling");
+
+	RotationActive.Init(this, "RotationActive");
+	RotationOrder.Init(this, "RotationOrder");
+	RotationOffset.Init(this, "RotationOffset");
+	RotationPivot.Init(this, "RotationPivot");
+
+	ScalingOffset.Init(this, "ScalingOffset");
+	ScalingPivot.Init(this, "ScalingPivot");
+
+	PreRotation.Init(this, "PreRotation");
+	PostRotation.Init(this, "PostRotation");
+
+	// default values
+	Show = true;
+	Translation = Vector_Zero();
+	Rotation = Vector_Zero();
+	Scaling = Vector_One();
+
+	RotationActive = false;
+	RotationOrder.SetPropertyValue(OFBRotationOrder::eEULER_XYZ);
+	RotationOffset = Vector_Zero();
+	RotationPivot = Vector_Zero();
+	
+	ScalingOffset = Vector_Zero();
+	ScalingPivot = Vector_Zero();
+
+	PreRotation = Vector_Zero();
+	PostRotation = Vector_Zero();
+	
+	//
+	mCacheTime = OFBTime::MinusInfinity;
 }
 
 Camera::Camera(const Scene& _scene, const IElement& _element)
@@ -492,7 +431,8 @@ Light::Light(const Scene& _scene, const IElement& _element)
 
 ModelNull::ModelNull(const Scene& _scene, const IElement& _element)
 : Model(_scene, _element)
-{}
+{
+}
 
 SceneRoot::SceneRoot(const Scene& _scene, const IElement& _element)
 : Model(_scene, _element)
@@ -1036,6 +976,14 @@ struct Scene;
 Mesh::Mesh(const Scene& _scene, const IElement& _element)
 	: Model(_scene, _element)
 {
+	GeometricTranslation.Init(this, "GeometricTranslation");
+	GeometricRotation.Init(this, "GeometricRotation");
+	GeometricScaling.Init(this, "GeometricScaling");
+
+	//
+	GeometricTranslation = Vector_Zero();
+	GeometricRotation = Vector_Zero();
+	GeometricScaling = Vector_One();
 }
 
 
@@ -1049,17 +997,17 @@ struct MeshImpl : Mesh
 	}
 
 
-	Matrix getGeometricMatrix() const override
+	OFBMatrix getGeometricMatrix() const override
 	{
-		Vec3 translation = resolveVec3Property(*this, "GeometricTranslation", {0, 0, 0});
-		Vec3 rotation = resolveVec3Property(*this, "GeometricRotation", {0, 0, 0});
-		Vec3 scale = resolveVec3Property(*this, "GeometricScaling", {1, 1, 1});
+		OFBVector3 translation = GeometricTranslation;
+		OFBVector3 rotation = GeometricRotation;
+		OFBVector3 scale = GeometricScaling;
 
-		Matrix scale_mtx = makeIdentity();
+		OFBMatrix scale_mtx = makeIdentity();
 		scale_mtx.m[0] = (float)scale.x;
 		scale_mtx.m[5] = (float)scale.y;
 		scale_mtx.m[10] = (float)scale.z;
-		Matrix mtx = getRotationMatrix(rotation, RotationOrder::EULER_XYZ);
+		OFBMatrix mtx = getRotationMatrix(rotation, OFBRotationOrder::eEULER_XYZ);
 		setTranslation(translation, &mtx);
 
 		return scale_mtx * mtx;
@@ -1073,6 +1021,23 @@ struct MeshImpl : Mesh
 	const Material* getMaterial(int index) const override { return materials[index]; }
 	int getMaterialCount() const override { return (int)materials.size(); }
 
+	bool IsStatic() const override {
+
+		// TODO: check if there is a constant zero key
+		//if (mAnimationNodes.size() > 0)
+		//	return false;
+
+		if (Translation.IsAnimated() || Rotation.IsAnimated() || Scaling.IsAnimated())
+			return false;
+
+		if (nullptr != geometry)
+		{
+			if (nullptr != geometry->getSkin())
+				return false;
+		}
+
+		return true;
+	}
 
 	const Geometry* geometry = nullptr;
 	const Scene& scene;
@@ -1098,12 +1063,24 @@ struct MaterialImpl : Material
 
 
 	const Texture* getTexture(Texture::TextureType type) const override { return textures[type]; }
-	Color getDiffuseColor() const override { return diffuse_color; }
+	OFBColor getDiffuseColor() const override { return diffuse_color; }
 
 	const Texture* textures[Texture::TextureType::COUNT];
-	Color diffuse_color;
+	OFBColor diffuse_color;
 };
 
+Shader::Shader(const Scene& _scene, const IElement& _element)
+:Object(_scene, _element)
+{}
+
+struct ShaderImpl : Shader
+{
+	ShaderImpl(const Scene& _scene, const IElement& _element)
+	: Shader(_scene, _element)
+	{}
+
+	Type getType() const override { return Type::SHADER; }
+};
 
 struct LimbNodeImpl : ModelSkeleton
 {
@@ -1111,52 +1088,19 @@ struct LimbNodeImpl : ModelSkeleton
 		: ModelSkeleton(_scene, _element)
 	{
 		is_node = true;
-		mSize = 100.0;
-		mColor.x = 0.85;
-		mColor.y = 0.85;
-		mColor.z = 0.20;
+		
+		Size.Init(this, "Size");
+		Color.Init(this, "Color");
+
+		Size = 10.0;
+		Color.SetPropertyValue({ 0.85, 0.85, 0.20 });
 	}
 	Type getType() const override { return Type::LIMB_NODE; }
 
-	const double getSize() const override
+	bool Retrieve() override
 	{
-		return mSize;
+		return Object::Retrieve();
 	}
-	const Vec3 getColor() const override
-	{
-		return mColor;
-	}
-
-	void prepProperties()
-	{
-		if (nullptr != node_attribute)
-		{
-			Element *pelem = (Element*)&node_attribute->element;
-			const Element* prop = findChild(*pelem, "Properties70");
-
-			if (prop) prop = prop->child;
-			while (prop)
-			{
-				if (prop->id == "P" && prop->first_property)
-				{
-					if (prop->first_property->value == "Color")
-					{
-						mColor.x = prop->getProperty(4)->getValue().toDouble();
-						mColor.y = prop->getProperty(5)->getValue().toDouble();
-						mColor.z = prop->getProperty(6)->getValue().toDouble();
-					}
-					else if (prop->first_property->value == "Size")
-					{
-						mSize = prop->getProperty(4)->getValue().toDouble();
-					}
-				}
-				prop = prop->sibling;
-			}
-		}
-	}
-
-	double		mSize;
-	Vec3		mColor;
 };
 
 
@@ -1166,36 +1110,22 @@ struct NullImpl : ModelNull
 		: ModelNull(_scene, _element)
 	{
 		is_node = true;
-		mSize = 100.0;
+		//mSize = 100.0;
+		Size.Init(this, "Size");
+
+		Size = 100.0;
 	}
 	Type getType() const override { return Type::NULL_NODE; }
 
 
-	const double getSize() const override { return mSize; }
+	//const double getSize() const override { return mSize; }
 
-	void prepProperties()
+	bool Retrieve() override
 	{
-		if (nullptr != node_attribute)
-		{
-			Element *pelem = (Element*)&node_attribute->element;
-			const Element* prop = findChild(*pelem, "Properties70");
-
-			if (prop) prop = prop->child;
-			while (prop)
-			{
-				if (prop->id == "P" && prop->first_property)
-				{
-					if (prop->first_property->value == "Size")
-					{
-						mSize = prop->getProperty(4)->getValue().toDouble();
-					}
-				}
-				prop = prop->sibling;
-			}
-		}
+		return Object::Retrieve();
 	}
 
-	double mSize;
+	//double mSize;
 };
 
 struct CameraImpl : Camera
@@ -1204,40 +1134,485 @@ struct CameraImpl : Camera
 	: Camera(_scene, _element)
 	{
 		is_node = true;
-		mProjectionType = kFBCameraTypePerspective;
-		mBackgroundColor = {0.8, 0.8, 0.8};
-		mFieldOfView = 40.0;
-		mNearPlane = 10.0;
-		mFarPlane = 4000.0;
+		
+		Color.Init(this, "Color");
+		Position.Init(this, "Position");
+		UpVector.Init(this, "UpVector");
+		InterestPosition.Init(this, "InterestPosition");
+
+		OpticalCenterX.Init(this, "OpticalCenterX");
+		OpticalCenterY.Init(this, "OpticalCenterY");
+
+		BackgroundColor.Init(this, "BackgroundColor");
+		UseFrameColor.Init(this, "UseFrameColor");
+		FrameColor.Init(this, "FrameColor");
+		TurnTable.Init(this, "TurnTable");
+
+		AspectRatioMode.Init(this, "AspectRatioMode");
+		AspectWidth.Init(this, "AspectWidth");
+		AspectHeight.Init(this, "AspectHeight");
+		
+		PixelAspectRatio.Init(this, "PixelAspectRatio");
+		ApertureMode.Init(this, "ApertureMode");
+
+		FilmOffsetX.Init(this, "FilmOffsetX");
+		FilmOffsetY.Init(this, "FilmOffsetY");
+		FilmWidth.Init(this, "FilmWidth");
+		FilmHeight.Init(this, "FilmHeight");
+
+		FilmAspectRatio.Init(this, "FilmAspectRatio");
+		FilmSqueezeRatio.Init(this, "FilmSqueezeRatio");
+
+		WindowWidth.Init(this, "WindowWidth");
+		WindowHeight.Init(this, "WindowHeight");
+
+		FieldOfView.Init(this, "FieldOfView");
+		FieldOfViewX.Init(this, "FieldOfViewX");
+		FieldOfViewY.Init(this, "FieldOfViewY");
+		FocalLength.Init(this, "FocalLength");
+
+		NearPlane.Init(this, "NearPlane");
+		FarPlane.Init(this, "FarPlane");
+
+		Target.Init(this, "LookAtProperty");
+		Roll.Init(this, "Roll");
+
+		//
+		Color = { 0.8 };
+		Position = Vector_Zero();
+		UpVector = { 0.0, 1.0, 0.0 };
+		InterestPosition = Vector_Zero();
+		Roll = 0.0;
+		OpticalCenterX = 0.0;
+		OpticalCenterY = 0.0;
+		BackgroundColor = { 0.63 };
+		UseFrameColor = false;
+		FrameColor = { 0.3 };
+
+		TurnTable = 0.0;
+		AspectRatioMode.SetPropertyValue(eFrameSizeWindow);
+		AspectWidth = 320.0;
+		AspectHeight = 200.0;
+		PixelAspectRatio = 1.0;
+		ApertureMode.SetPropertyValue(eApertureVertical);
+
+		FilmOffsetX = 0.0;
+		FilmOffsetY = 0.0;
+		FilmWidth = 0.816;
+		FilmHeight = 0.612;
+		FilmAspectRatio = 1.3333333;
+		FilmSqueezeRatio = 1.0;
+
+		WindowWidth = 640;
+		WindowHeight = 680;
+
+		FieldOfView = 25.114999;
+		FieldOfViewX = 40.0;
+		FieldOfViewY = 40.0;
+		FocalLength = 34.89327;
+
+		NearPlane = 10.0;
+		FarPlane = 4000.0;
+
+		Target = nullptr;
+		Roll = 0.0;
+
+		//
+		mCacheTime = OFBTime::MinusInfinity;
+		mManualSet = false;
 	}
 	Type getType() const override { return Type::CAMERA; }
 
-	const CameraType getCameraProjectionType() const override
+	// TODO:
+	Model *GetTarget() const override
 	{
-		return mProjectionType;
-	}
-	const Vec3 getBackgroundColor() const override
-	{
-		return mBackgroundColor;
-	}
-	const double getFieldOfView() const override
-	{
-		return mFieldOfView;
-	}
-	const double getNearPlane() const override
-	{
-		return mNearPlane;
-	}
-	const double getFarPlane() const override
-	{
-		return mFarPlane;
+		Object *pTarget = resolveObjectLink(Type::NULL_NODE, Target.GetName(), 0);
+		return (Model*)pTarget;
 	}
 
-	CameraType			mProjectionType;
-	Vec3		mBackgroundColor;
-	double		mFieldOfView;
-	double		mNearPlane;
-	double		mFarPlane;
+	bool GetCameraMatrix(float *pMatrix, CameraMatrixType pType, const OFBTime *pTime = nullptr) override
+	{
+		OFBTime lTime((nullptr != pTime) ? pTime->Get() : gDisplayInfo.localTime.Get());
+
+		if (false == mManualSet)
+		{
+			if (mCacheTime.Get() != lTime.Get())
+			{
+				ComputeCameraMatrix(&lTime);
+				mCacheTime.Set(lTime.Get());
+			}
+		}
+		mManualSet = false;
+
+		switch (pType)
+		{
+		case eProjection:
+			for (int i = 0; i < 16; ++i)
+				pMatrix[i] = (float)mProjection[i];
+			break;
+		case eModelView:
+			for (int i = 0; i < 16; ++i)
+				pMatrix[i] = (float)mModelView[i];
+			break;
+		}
+
+		// TODO: 
+		return true;
+	}
+
+	bool GetCameraMatrix(double *pMatrix, CameraMatrixType pType, const OFBTime *pTime = nullptr) override
+	{
+		OFBTime lTime((nullptr != pTime) ? pTime->Get() : gDisplayInfo.localTime.Get());
+
+		if (false == mManualSet)
+		{
+			if (mCacheTime.Get() != lTime.Get())
+			{
+				ComputeCameraMatrix(&lTime);
+				mCacheTime.Set(lTime.Get());
+			}
+		}
+		mManualSet = false;
+
+		switch (pType)
+		{
+		case eProjection:
+			for (int i = 0; i < 16; ++i)
+				pMatrix[i] = mProjection[i];
+			break;
+		case eModelView:
+			for (int i = 0; i < 16; ++i)
+				pMatrix[i] = mModelView[i];
+			break;
+		}
+
+		return true;
+	}
+
+	double ComputeFieldOfView(const double focal, const double h) const override
+	{
+		double fov = 2.0 * atan(h / 2.0 * focal);
+		return fov;
+	}
+
+	bool ComputeCameraMatrix(OFBTime *pTime = nullptr)
+	{
+		OFBTime lTime((nullptr != pTime) ? pTime->Get() : gDisplayInfo.localTime.Get());
+
+		// Compute the camera position and direction.
+		
+		OFBVector3 lCenter;
+		
+		OFBVector3 lForward, lRight;
+
+		OFBVector3 lEye; // = Position;
+		GetVector(lEye, eModelTranslation, true, &lTime);
+		OFBVector3 lUp = UpVector;
+
+		if (nullptr != GetTarget())
+		{
+			GetTarget()->GetVector(lCenter, eModelTranslation, true, pTime);
+		}
+		else
+		{
+			// Get the direction
+			OFBMatrix lGlobalRotation;
+			OFBMatrix lGlobalTransform;
+
+			GetMatrix(lGlobalTransform, eModelTransformation, true, pTime);
+			OFBVector4 lRotationVector = MatrixGetRotation(lGlobalTransform);
+			QuaternionToMatrix(lGlobalRotation, lRotationVector);
+			
+
+			// Get the length
+			//FbxVector4 lInterestPosition(lCamera->InterestPosition.Get());
+			//FbxVector4 lCameraGlobalPosition(GetGlobalPosition(lCameraNode, pTime).GetT());
+			//double      lLength = (FbxVector4(lInterestPosition - lCameraGlobalPosition).Length());
+			double lLength = 1.0;
+
+			// Set the center.
+			// A camera with rotation = {0,0,0} points to the X direction. So create a
+			// vector in the X direction, rotate that vector by the global rotation amount
+			// and then position the center by scaling and translating the resulting vector
+			
+			OFBVector3 frontVector = { 1.0, 0.0, 0.0 };
+			OFBVector3 upVector = { 0.0, 1.0, 0.0 };
+
+			VectorTransform33(lCenter, frontVector, lGlobalRotation);
+
+			lCenter = lCenter * lLength;
+			lCenter = lCenter + lEye;
+
+			// Update the default up vector with the camera rotation.
+			VectorTransform33(lUp, upVector, lGlobalRotation);
+		}
+
+		// Align the up vector.
+		lForward = lCenter - lEye;
+		VectorNormalize(lForward);
+		lRight = CrossProduct(lForward, lUp);
+		VectorNormalize(lRight);
+		lUp = CrossProduct(lRight, lForward);
+		VectorNormalize(lUp);
+
+		// Rotate the up vector with the roll value.
+		double lRadians = 0;
+		double lRoll = 0.0;
+		
+		Roll.GetData(&lRoll, sizeof(double), &lTime);
+
+		lRadians = lRoll * M_PI / 180.0; // FBXSDK_PI_DIV_180;
+		lUp = lUp * cos(lRadians) + lRight * sin(lRadians);
+
+		const double lNearPlane = NearPlane;
+		const double lFarPlane = FarPlane;
+
+		// Get the relevant camera settings for a perspective view.
+		if (eCameraTypePerspective == ProjectionType)
+		{
+			//get the aspect ratio
+			OFBCameraFrameSizeMode lCamAspectRatioMode = AspectRatioMode;
+			double lAspectX = AspectWidth;
+			double lAspectY = AspectHeight;
+			double lAspectRatio = 1.333333;
+
+			switch (lCamAspectRatioMode)
+			{
+			case eFrameSizeWindow:
+				lAspectRatio = lAspectX / lAspectY;
+				break;
+			case eFrameSizeFixedRatio:
+				lAspectRatio = lAspectX;
+
+				break;
+			case eFrameSizeFixedResolution:
+				lAspectRatio = lAspectX / lAspectY * PixelAspectRatio;
+				break;
+			case eFrameSizeFixedWidthResolution:
+				lAspectRatio = PixelAspectRatio / lAspectY;
+				break;
+			case eFrameSizeFixedHeightResolution:
+				lAspectRatio = PixelAspectRatio * lAspectX;
+				break;
+			default:
+				break;
+
+			}
+
+			//get the aperture ratio
+			double lFilmHeight = FilmHeight;
+			double lFilmWidth = FilmWidth * FilmSqueezeRatio;
+			//here we use Height : Width
+			double lApertureRatio = lFilmHeight / lFilmWidth;
+
+
+			//change the aspect ratio to Height : Width
+			lAspectRatio = 1.0 / lAspectRatio;
+			/*
+			//revise the aspect ratio and aperture ratio
+			FbxCamera::EGateFit lCameraGateFit = lCamera->GateFit.Get();
+			switch (lCameraGateFit)
+			{
+
+			case FbxCamera::eFitFill:
+				if (lApertureRatio > lAspectRatio)  // the same as eHORIZONTAL_FIT
+				{
+					lFilmHeight = lFilmWidth * lAspectRatio;
+					lCamera->SetApertureHeight(lFilmHeight);
+					lApertureRatio = lFilmHeight / lFilmWidth;
+				}
+				else if (lApertureRatio < lAspectRatio) //the same as eVERTICAL_FIT
+				{
+					lFilmWidth = lFilmHeight / lAspectRatio;
+					lCamera->SetApertureWidth(lFilmWidth);
+					lApertureRatio = lFilmHeight / lFilmWidth;
+				}
+				break;
+			case FbxCamera::eFitVertical:
+				lFilmWidth = lFilmHeight / lAspectRatio;
+				lCamera->SetApertureWidth(lFilmWidth);
+				lApertureRatio = lFilmHeight / lFilmWidth;
+				break;
+			case FbxCamera::eFitHorizontal:
+				lFilmHeight = lFilmWidth * lAspectRatio;
+				lCamera->SetApertureHeight(lFilmHeight);
+				lApertureRatio = lFilmHeight / lFilmWidth;
+				break;
+			case FbxCamera::eFitStretch:
+				lAspectRatio = lApertureRatio;
+				break;
+			case FbxCamera::eFitOverscan:
+				if (lFilmWidth > lFilmHeight)
+				{
+					lFilmHeight = lFilmWidth * lAspectRatio;
+				}
+				else
+				{
+					lFilmWidth = lFilmHeight / lAspectRatio;
+				}
+				lApertureRatio = lFilmHeight / lFilmWidth;
+				break;
+			case FbxCamera::eFitNone:
+			default:
+				break;
+			}
+			*/
+			//change the aspect ratio to Width : Height
+			lAspectRatio = 1.0 / lAspectRatio;
+
+			double lFieldOfViewX = 0.0;
+			double lFieldOfViewY = 0.0;
+			
+			double lFocalLength = 0.0;
+
+			switch (ApertureMode)
+			{
+			case eApertureVertical:
+				FieldOfView.GetData(&lFieldOfViewY, sizeof(double), &lTime);
+				lFieldOfViewX = VFOV2HFOV(lFieldOfViewY, 1.0 / lApertureRatio);
+				break;
+			case eApertureHorizontal:
+				FieldOfView.GetData(&lFieldOfViewX, sizeof(double), &lTime); //get HFOV
+				lFieldOfViewY = HFOV2VFOV(lFieldOfViewX, lApertureRatio);
+				break;
+			case eApertureFocalLength:
+				FocalLength.GetData(&lFocalLength, sizeof(double), &lTime);
+				lFieldOfViewX = ComputeFieldOfView(lFocalLength, lFilmWidth);    //get HFOV
+				lFieldOfViewY = HFOV2VFOV(lFieldOfViewX, lApertureRatio);
+				break;
+			case eApertureVertHoriz:
+				FieldOfViewX.GetData(&lFieldOfViewX, sizeof(double), &lTime);
+				FieldOfViewY.GetData(&lFieldOfViewY, sizeof(double), &lTime);
+			}
+
+
+			double lRealScreenRatio = WindowWidth / WindowHeight;
+			int  lViewPortPosX = 0,
+				lViewPortPosY = 0,
+				lViewPortSizeX = WindowWidth,
+				lViewPortSizeY = WindowHeight;
+			//compute the view port
+			if (lRealScreenRatio > lAspectRatio)
+			{
+				lViewPortSizeY = WindowHeight;
+				lViewPortSizeX = (int)(lViewPortSizeY * lAspectRatio);
+				lViewPortPosY = 0;
+				lViewPortPosX = (int)((WindowWidth - lViewPortSizeX) * 0.5);
+			}
+			else
+			{
+				lViewPortSizeX = WindowWidth;
+				lViewPortSizeY = (int)(lViewPortSizeX / lAspectRatio);
+				lViewPortPosX = 0;
+				lViewPortPosY = (int)((WindowHeight - lViewPortSizeY) * 0.5);
+			}
+
+			//revise the Perspective since we have film offset
+			double lFilmOffsetX = FilmOffsetX.Get();
+			double lFilmOffsetY = FilmOffsetY.Get();
+			lFilmOffsetX = 0.0 - lFilmOffsetX / lFilmWidth * 2.0;
+			lFilmOffsetY = 0.0 - lFilmOffsetY / lFilmHeight * 2.0;
+
+			GetCameraPerspectiveMatrix(mProjection, mModelView, lFieldOfViewY, lAspectRatio, lNearPlane, lFarPlane, 
+				lEye, lCenter, lUp, lFilmOffsetX, lFilmOffsetY);
+
+		}
+		else
+		{
+			double lPixelRatio = PixelAspectRatio;
+
+			double lLeftPlane, lRightPlane, lBottomPlane, lTopPlane;
+
+			double lWindowWidth = WindowWidth;
+			double lWindowHeight = WindowHeight;
+
+			if (lWindowWidth < lWindowHeight)
+			{
+				lLeftPlane = -gsOrthoCameraScale * lPixelRatio;
+				lRightPlane = gsOrthoCameraScale * lPixelRatio;
+				lBottomPlane = -gsOrthoCameraScale * lWindowHeight / lWindowWidth;
+				lTopPlane = gsOrthoCameraScale * lWindowHeight / lWindowWidth;
+			}
+			else
+			{
+				lWindowWidth *= (int)lPixelRatio;
+				lLeftPlane = -gsOrthoCameraScale * lWindowWidth / lWindowHeight;
+				lRightPlane = gsOrthoCameraScale * lWindowWidth / lWindowHeight;
+				lBottomPlane = -gsOrthoCameraScale;
+				lTopPlane = gsOrthoCameraScale;
+			}
+
+			GetCameraOrthogonal(mProjection, mModelView, lLeftPlane,
+				lRightPlane,
+				lBottomPlane,
+				lTopPlane,
+				lNearPlane,
+				lFarPlane,
+				lEye,
+				lCenter,
+				lUp);
+		}
+		// TODO: 
+		return true;
+	}
+
+	// override camera matrix
+	void SetCameraMatrix(const float *pMatrix, CameraMatrixType pType) override
+	{
+		double *dst = nullptr;
+
+		if (eProjection == pType)
+		{
+			dst = &mProjection.m[0];
+		}
+		else if (eModelView == pType)
+		{
+			dst = &mModelView.m[0];
+		}
+
+		for (int i = 0; i < 16; ++i)
+			dst[i] = (double) pMatrix[i];
+		mManualSet = true;
+	}
+	void SetCameraMatrix(const double *pMatrix, CameraMatrixType pType) override
+	{
+		double *dst = nullptr;
+
+		if (eProjection == pType)
+		{
+			dst = &mProjection.m[0];
+		}
+		else if (eModelView == pType)
+		{
+			dst = &mModelView.m[0];
+		}
+
+		for (int i = 0; i < 16; ++i)
+			dst[i] = pMatrix[i];
+		mManualSet = true;
+	}
+
+	bool Retrieve() override
+	{
+		return Object::Retrieve();
+	}
+
+protected:
+
+	OFBMatrix		mModelView;
+	OFBMatrix		mProjection;
+
+	OFBTime			mCacheTime;
+	bool			mManualSet;
+};
+
+struct LightImpl : Light
+{
+	LightImpl(const Scene& _scene, const IElement &_element)
+	: Light(_scene, _element)
+	{}
+
+	Type getType() const override { return Type::LIGHT;  }
 };
 
 NodeAttribute::NodeAttribute(const Scene& _scene, const IElement& _element)
@@ -1283,11 +1658,11 @@ struct GeometryImpl : Geometry
 		NewVertex* next = nullptr;
 	};
 
-	std::vector<Vec3> vertices;
-	std::vector<Vec3> normals;
-	std::vector<Vec2> uvs;
-	std::vector<Vec4> colors;
-	std::vector<Vec3> tangents;
+	std::vector<OFBVector3> vertices;
+	std::vector<OFBVector3> normals;
+	std::vector<OFBVector2> uvs;
+	std::vector<OFBVector4> colors;
+	std::vector<OFBVector3> tangents;
 	std::vector<int> materials;
 
 	const Skin* skin = nullptr;
@@ -1303,11 +1678,11 @@ struct GeometryImpl : Geometry
 
 	Type getType() const override { return Type::GEOMETRY; }
 	int getVertexCount() const override { return (int)vertices.size(); }
-	const Vec3* getVertices() const override { return &vertices[0]; }
-	const Vec3* getNormals() const override { return normals.empty() ? nullptr : &normals[0]; }
-	const Vec2* getUVs() const override { return uvs.empty() ? nullptr : &uvs[0]; }
-	const Vec4* getColors() const override { return colors.empty() ? nullptr : &colors[0]; }
-	const Vec3* getTangents() const override { return tangents.empty() ? nullptr : &tangents[0]; }
+	const OFBVector3* getVertices() const override { return &vertices[0]; }
+	const OFBVector3* getNormals() const override { return normals.empty() ? nullptr : &normals[0]; }
+	const OFBVector2* getUVs() const override { return uvs.empty() ? nullptr : &uvs[0]; }
+	const OFBVector4* getColors() const override { return colors.empty() ? nullptr : &colors[0]; }
+	const OFBVector3* getTangents() const override { return tangents.empty() ? nullptr : &tangents[0]; }
 	const Skin* getSkin() const override { return skin; }
 	const int* getMaterials() const override { return materials.empty() ? nullptr : &materials[0]; }
 
@@ -1367,8 +1742,8 @@ struct ClusterImpl : Cluster
 	int getIndicesCount() const override { return (int)indices.size(); }
 	const double* getWeights() const override { return &weights[0]; }
 	int getWeightsCount() const override { return (int)weights.size(); }
-	Matrix getTransformMatrix() const override { return transform_matrix; }
-	Matrix getTransformLinkMatrix() const override { return transform_link_matrix; }
+	OFBMatrix getTransformMatrix() const override { return transform_matrix; }
+	OFBMatrix getTransformLinkMatrix() const override { return transform_link_matrix; }
 	Object* getLink() const override { return link; }
 
 
@@ -1421,11 +1796,15 @@ struct ClusterImpl : Cluster
 	Skin* skin = nullptr;
 	std::vector<int> indices;
 	std::vector<double> weights;
-	Matrix transform_matrix;
-	Matrix transform_link_matrix;
+	OFBMatrix transform_matrix;
+	OFBMatrix transform_link_matrix;
 	Type getType() const override { return Type::CLUSTER; }
 };
 
+Constraint::Constraint(const Scene& _scene, const IElement& _element)
+: Object(_scene, _element)
+{
+}
 
 AnimationStack::AnimationStack(const Scene& _scene, const IElement& _element)
 	: Object(_scene, _element)
@@ -1449,6 +1828,18 @@ AnimationCurveNode::AnimationCurveNode(const Scene& _scene, const IElement& _ele
 	: Object(_scene, _element)
 {
 }
+
+struct ConstraintImpl : Constraint
+{
+	ConstraintImpl(const Scene &_scene, const IElement &_element)
+	: Constraint(_scene, _element)
+	{
+		Active.Init(this, "Active");
+		Weight.Init(this, "Weight");
+	}
+
+	Type getType() const override { return Type::CONSTRAINT; }
+};
 
 struct AnimationStackImpl : AnimationStack
 {
@@ -1498,29 +1889,43 @@ struct AnimationCurveImpl : AnimationCurve
 	AnimationCurveImpl(const Scene& _scene, const IElement& _element)
 		: AnimationCurve(_scene, _element)
 	{
+		mLastEvalTime = OFBTime::MinusInfinity;
+		mLastEvalValue = 0.0f;
 	}
 
-	double Evaluate(const i64 time) const
+	double Evaluate(const OFBTime &time) const override
 	{
-		size_t count = values.size();
-
-		if (0 == count)
-			return 0.0;
-
-		i64 fbx_time(time);
-
-		if (fbx_time < times[0]) fbx_time = times[0];
-		if (fbx_time > times[count - 1]) fbx_time = times[count - 1];
-
-		for (size_t i = 1; i < count; ++i)
+		if (mLastEvalTime.Get() == time.Get())
 		{
-			if (times[i] >= fbx_time)
-			{
-				float t = float(double(fbx_time - times[i - 1]) / double(times[i] - times[i - 1]));
-				return values[i - 1] * (1 - t) + values[i] * t;
-			}
+			return mLastEvalValue;
 		}
-		return values[0];
+		else
+		{
+			((OFBTime*)&mLastEvalTime)->Set(time.Get());
+
+			size_t count = values.size();
+			float result = 0.0f;
+
+			if (count > 0)
+			{
+				i64 fbx_time(time.Get());
+
+				if (fbx_time < times[0]) fbx_time = times[0];
+				if (fbx_time > times[count - 1]) fbx_time = times[count - 1];
+
+				for (size_t i = 1; i < count; ++i)
+				{
+					if (times[i] >= fbx_time)
+					{
+						float t = float(double(fbx_time - times[i - 1]) / double(times[i] - times[i - 1]));
+						result = values[i - 1] * (1 - t) + values[i] * t;
+						break;
+					}
+				}
+			}
+			return result;
+		}
+		
 	}
 
 	int getKeyCount() const override { return (int)times.size(); }
@@ -1531,6 +1936,10 @@ struct AnimationCurveImpl : AnimationCurve
 	std::vector<i64>	times;
 	std::vector<float>	values;
 	std::vector<int>	flags;
+
+	// cache
+	OFBTime		mLastEvalTime;
+	float		mLastEvalValue;
 
 	Type getType() const override { return Type::ANIMATION_CURVE; }
 };
@@ -1561,6 +1970,8 @@ struct SkinImpl : Skin
 Texture::Texture(const Scene& _scene, const IElement& _element)
 	: Object(_scene, _element)
 {
+	FileName.Init(this, "FileName");
+	RelativeFileName.Init(this, "Relative FileName");
 }
 
 
@@ -1571,15 +1982,16 @@ struct TextureImpl : Texture
 	{
 	}
 
-	DataView getRelativeFileName() const override { return relative_filename; }
-	DataView getFileName() const override { return filename; }
+	//DataView getRelativeFileName() const override { return relative_filename; }
+	//DataView getFileName() const override { return filename; }
 
 	DataView filename;
 	DataView relative_filename;
 	Type getType() const override { return Type::TEXTURE; }
 };
 
-
+////////////////////////////////////////////////////////////////////////////////////////
+// Models root, scene root
 struct Root : SceneRoot
 {
 	Root(const Scene& _scene, const IElement& _element)
@@ -1587,16 +1999,16 @@ struct Root : SceneRoot
 	{
 		copyString(name, "RootNode");
 		is_node = true;
-		mSize = 100.0;
+		//mSize = 100.0;
 	}
 	Type getType() const override { return Type::ROOT; }
-
+	/*
 	const double getSize() const override
 	{
 		return mSize;
 	}
 
-	double		mSize;
+	double		mSize;*/
 };
 
 
@@ -1634,6 +2046,40 @@ struct Scene : IScene
 
 	int getAllObjectCount() const override { return (int)m_all_objects.size(); }
 
+	int GetLightCount() const override {
+		return (int)mLights.size();
+	}
+	const Light *GetLight(const int index) const override {
+		return mLights[index];
+	}
+
+	int GetCameraCount() const override {
+		return (int)mCameras.size();
+	}
+	const Camera *GetCamera(const int index) const override {
+		return mCameras[index];
+	}
+
+	int GetMaterialCount() const override {
+		return (int)mMaterials.size();
+	}
+	const Material *GetMaterial(const int index) const override {
+		return mMaterials[index];
+	}
+
+	int GetShaderCount() const override {
+		return (int)m_shaders.size();
+	}
+	const Shader *GetShader(const int index) const override {
+		return m_shaders[index];
+	}
+
+	int GetConstraintCount() const override {
+		return (int)mConstraints.size();
+	}
+	const Constraint *GetConstraint(const int index) const override {
+		return mConstraints[index];
+	}
 
 	const AnimationStack* getAnimationStack(int index) const override
 	{
@@ -1660,6 +2106,31 @@ struct Scene : IScene
 		return nullptr;
 	}
 
+	bool PrepTakeConnections(const int takeIndex) override
+	{
+		AnimationStack *pStack = m_animation_stacks[takeIndex];
+
+		
+		const int layerCount = pStack->getLayerCount();
+
+		// detach all object properties anim nodes
+
+		for (auto iter = begin(m_all_objects); iter != end(m_all_objects); ++iter)
+		{
+			(*iter)->mProperties.DetachAnimNodes();
+
+			// start a new attachments from a base layer
+			//  layers are sorted under the stack
+
+			for (int i = 0; i < layerCount; ++i)
+			{
+				const AnimationLayer *pLayer = pStack->getLayer(i);
+				(*iter)->mProperties.AttachAnimNodes(pLayer);
+			}
+		}
+
+		return true;
+	}
 
 	const IElement* getRootElement() const override { return m_root_element; }
 	const Object* getRoot() const override { return m_root; }
@@ -1685,6 +2156,11 @@ struct Scene : IScene
 	std::unordered_map<u64, ObjectPair> m_object_map;
 	std::vector<Object*> m_all_objects;
 	std::vector<Mesh*> m_meshes;
+	std::vector<Material*>	mMaterials;
+	std::vector<Shader*>	m_shaders;
+	std::vector<Light*>		mLights;
+	std::vector<Camera*>	mCameras;
+	std::vector<Constraint*>	mConstraints;
 	std::vector<AnimationStack*> m_animation_stacks;
 	std::vector<Connection> m_connections;
 	std::vector<u8> m_data;
@@ -1700,13 +2176,27 @@ struct AnimationCurveNodeImpl : AnimationCurveNode
 	}
 
 
-	const Object* getBone() const override
+	const Object* GetOwner() const override
 	{
-		return bone;
+		return mOwner;
 	}
 
+	AnimationCurveNode *GetNext() override
+	{
+		return mNext;
+	}
 
-	Vec3 getNodeLocalTransform(double time) const override
+	const AnimationCurveNode *GetNext() const override
+	{
+		return mNext;
+	}
+
+	void LinkNext(const AnimationCurveNode *pNext) override
+	{
+		mNext = (AnimationCurveNode*) pNext;
+	}
+
+	OFBVector3 getNodeLocalTransform(double time) const override
 	{
 		u64 fbx_time = secondsToFbxTime(time);
 
@@ -1725,19 +2215,35 @@ struct AnimationCurveNodeImpl : AnimationCurveNode
 
 	int getCurveCount() const override
 	{
-		int result = 0;
-		if (nullptr != curves[2].curve)
-			result = 3;
-		else if (nullptr != curves[1].curve)
-			result = 2;
-		else if (nullptr != curves[0].curve)
-			result = 1;
-
-		return result;
+		return mNumberOfCurves;
 	}
 	const AnimationCurve *getCurve(int index) const override
 	{
 		return curves[index].curve;
+	}
+	bool AttachCurve(const AnimationCurve *pCurve, const Scene::Connection *connection)
+	{
+		bool lSuccess = false;
+		if (mNumberOfCurves < 3)
+		{
+			curves[mNumberOfCurves].curve = pCurve;
+			curves[mNumberOfCurves].connection = connection;
+			mNumberOfCurves += 1;
+
+			lSuccess = true;
+		}
+		return lSuccess;
+	}
+
+	bool Evaluate(double *Data, const OFBTime pTime) const override
+	{
+		double *pData = Data;
+		for (int i = 0; i < mNumberOfCurves; ++i)
+		{
+			*pData = curves[i].curve->Evaluate(pTime);
+			pData += 1;
+		}
+		return true;
 	}
 
 	struct Curve
@@ -1747,11 +2253,17 @@ struct AnimationCurveNodeImpl : AnimationCurveNode
 	};
 
 	AnimationLayer *mLayer = nullptr;
-	Curve curves[3];
-	Object* bone = nullptr;
+	AnimationCurveNode *mNext = nullptr;	// linked anim nodes under owner for different layers
+
+	Object* mOwner = nullptr;
 	DataView bone_link_property;
 	Type getType() const override { return Type::ANIMATION_CURVE_NODE; }
 	AnimationNodeType mode = ANIMATIONNODE_TYPE_CUSTOM;
+
+protected:
+
+	int mNumberOfCurves = 0;
+	Curve curves[3];
 };
 
 
@@ -1760,43 +2272,26 @@ struct AnimationLayerImpl : AnimationLayer
 	AnimationLayerImpl(const Scene& _scene, const IElement& _element)
 		: AnimationLayer(_scene, _element)
 	{
-		mLayerID = 0;
+		LayerID.Init(this, "mLayerID");
+		Mute.Init(this, "Mute");
+		Solo.Init(this, "Solo");
+		Lock.Init(this, "Lock");
+		Weight.Init(this, "Weight");
+
+		LayerMode.Init(this, "LayerMode");
+		LayerRotationMode.Init(this, "LayerRotationModel");
+
 		parentLayer = nullptr;
-
-		LayerMode = kFBLayerModeAdditive;
-		LayerRotationMode = kFBLayerRotationModeEulerRotation;
-
-		// TODO: this should be assigned from fbx template for the FbxAnimLayer
 
 		Mute = false;
 		Solo = false;
 		Lock = false;
 		Weight = 100.0;
-		weightAnimNode = nullptr;
 	}
 
 
 	Type getType() const override { return Type::ANIMATION_LAYER; }
 
-	bool isMute() const override
-	{
-		return Mute; // resolveBoolProperty(*this, "Mute", false);
-	}
-	bool isSolo() const override
-	{
-		return Solo; // resolveBoolProperty(*this, "Solo", false);
-	}
-
-	// DONE: weight could be animated !!
-	double getWeight() const override
-	{
-		return Weight; // resolveDoubleProperty(*this, "Weight", 100.0);
-	}
-
-	AnimationCurveNode *getWeightAnimNode() const override
-	{
-		return weightAnimNode;
-	}
 
 	int getSubLayerCount() const override
 	{
@@ -1818,35 +2313,14 @@ struct AnimationLayerImpl : AnimationLayer
 	}
 
 
-	const AnimationCurveNode* getCurveNode(const Object& bone, const char* prop) const override
+	const AnimationCurveNode* getCurveNode(const Object& obj, const char* prop) const override
 	{
 		for (const AnimationCurveNodeImpl* node : curve_nodes)
 		{
-			if (node->bone_link_property == prop && node->bone == &bone) return node;
+			if (node->bone_link_property == prop && node->GetOwner() == &obj) return node;
 		}
 		return nullptr;
 	}
-
-	void InitProperties()
-	{
-		mLayerID = resolveIntProperty(*this, "mLayerID", 0);
-		Mute = resolveBoolProperty(*this, "Mute", false);
-		Solo = resolveBoolProperty(*this, "Solo", false);
-		Lock = resolveBoolProperty(*this, "Lock", false);
-		Weight = resolveDoubleProperty(*this, "Weight", 100.0);
-	}
-
-	int			mLayerID;	// rearranged order of layers, defined by users
-
-	bool		Solo;				//!< <b>Read Write Property:</b> If true, the layer is soloed. When you solo a layer, you mute other layers that are at the same level in the hierarchy, as well as the children of those layers. Cannot be applied to the BaseAnimation Layer.
-	bool		Mute;				//!< <b>Read Write Property:</b> If true, the layer is muted. A muted layer is not included in the result animation. Cannot be applied to the BaseAnimation Layer.
-	bool		Lock;				//!< <b>Read Write Property:</b> If true, the layer is locked. You cannot modify keyframes on a locked layer.
-	
-	double 		Weight;				//!< <b>Read Write Property:</b> The weight value of a layer determines how much it is present in the result animation. Takes a value from 0 (the layer is not present) to 100. The weighting of a parent layer is factored into the weighting of its child layers, if any. BaseAnimation Layer always has a Weight of 100. 
-	AnimationCurveNodeImpl *weightAnimNode;
-	
-	FBLayerMode			LayerMode;			//!< <b>Read Write Property:</b> Layer mode. By default, the layer is in kFBLayerModeAdditive mode. Cannot be applied to the BaseAnimation Layer.
-	FBLayerRotationMode	LayerRotationMode;	//!< <b>Read Only Property:</b> Layer rotation mode. Cannot be applied to the BaseAnimation Layer.
 
 	AnimationLayer			*parentLayer;
 
@@ -1871,6 +2345,33 @@ struct OptionalError<Object*> parseTexture(const Scene& scene, const Element& el
 	return texture;
 }
 
+struct OptionalError<Object*> parseGeneric(const Scene &scene, const Element &element)
+{
+	Object* newGeneric = nullptr; // new ShaderImpl(scene, element);
+	const Element* prop = findChild(element, "Properties70");
+	
+	if (prop) prop = prop->child;
+	while (prop)
+	{
+		if (prop->id == "P" && prop->first_property)
+		{
+			if (prop->first_property->value == "MoBuTypeName")
+			{
+
+				if (prop->getProperty(4)->getValue() == "Shader")
+				{
+					// TODO: customize shader class ?!
+
+					newGeneric = new ShaderImpl(scene, element);
+					break;
+				}
+			}
+		}
+		prop = prop->sibling;
+	}
+
+	return OptionalError<Object*>(newGeneric, false);
+}
 
 template <typename T> static OptionalError<Object*> parse(const Scene& scene, const Element& element)
 {
@@ -2113,25 +2614,25 @@ const char* fromString(const char* str, const char* end, double* val, int count)
 }
 
 
-template <> const char* fromString<Vec2>(const char* str, const char* end, Vec2* val)
+template <> const char* fromString<OFBVector2>(const char* str, const char* end, OFBVector2* val)
 {
 	return fromString(str, end, &val->x, 2);
 }
 
 
-template <> const char* fromString<Vec3>(const char* str, const char* end, Vec3* val)
+template <> const char* fromString<OFBVector3>(const char* str, const char* end, OFBVector3* val)
 {
 	return fromString(str, end, &val->x, 3);
 }
 
 
-template <> const char* fromString<Vec4>(const char* str, const char* end, Vec4* val)
+template <> const char* fromString<OFBVector4>(const char* str, const char* end, OFBVector4* val)
 {
 	return fromString(str, end, &val->x, 4);
 }
 
 
-template <> const char* fromString<Matrix>(const char* str, const char* end, Matrix* val)
+template <> const char* fromString<OFBMatrix>(const char* str, const char* end, OFBMatrix* val)
 {
 	return fromString(str, end, &val->m[0], 16);
 }
@@ -2442,7 +2943,7 @@ static OptionalError<Object*> parseGeometry(const Scene& scene, const Element& e
 
 	std::unique_ptr<GeometryImpl> geom = std::make_unique<GeometryImpl>(scene, element);
 
-	std::vector<Vec3> vertices;
+	std::vector<OFBVector3> vertices;
 	if (!parseDoubleVecData(*vertices_element->first_property, &vertices)) return Error("Failed to parse vertices");
 	std::vector<int> original_indices;
 	if (!parseBinaryArray(*polys_element->first_property, &original_indices)) return Error("Failed to parse indices");
@@ -2504,7 +3005,7 @@ static OptionalError<Object*> parseGeometry(const Scene& scene, const Element& e
 	const Element* layer_uv_element = findChild(element, "LayerElementUV");
 	if (layer_uv_element)
 	{
-		std::vector<Vec2> tmp;
+		std::vector<OFBVector2> tmp;
 		std::vector<int> tmp_indices;
 		GeometryImpl::VertexDataMapping mapping;
 		if (!parseVertexData(*layer_uv_element, "UV", "UVIndex", &tmp, &tmp_indices, &mapping)) return Error("Invalid UVs");
@@ -2519,7 +3020,7 @@ static OptionalError<Object*> parseGeometry(const Scene& scene, const Element& e
 	const Element* layer_tangent_element = findChild(element, "LayerElementTangents");
 	if (layer_tangent_element)
 	{
-		std::vector<Vec3> tmp;
+		std::vector<OFBVector3> tmp;
 		std::vector<int> tmp_indices;
 		GeometryImpl::VertexDataMapping mapping;
 		if (findChild(*layer_tangent_element, "Tangents"))
@@ -2540,7 +3041,7 @@ static OptionalError<Object*> parseGeometry(const Scene& scene, const Element& e
 	const Element* layer_color_element = findChild(element, "LayerElementColor");
 	if (layer_color_element)
 	{
-		std::vector<Vec4> tmp;
+		std::vector<OFBVector4> tmp;
 		std::vector<int> tmp_indices;
 		GeometryImpl::VertexDataMapping mapping;
 		if (!parseVertexData(*layer_color_element, "Colors", "ColorIndex", &tmp, &tmp_indices, &mapping)) return Error("Invalid colors");
@@ -2554,7 +3055,7 @@ static OptionalError<Object*> parseGeometry(const Scene& scene, const Element& e
 	const Element* layer_normal_element = findChild(element, "LayerElementNormal");
 	if (layer_normal_element)
 	{
-		std::vector<Vec3> tmp;
+		std::vector<OFBVector3> tmp;
 		std::vector<int> tmp_indices;
 		GeometryImpl::VertexDataMapping mapping;
 		if (!parseVertexData(*layer_normal_element, "Normals", "NormalsIndex", &tmp, &tmp_indices, &mapping)) return Error("Invalid normals");
@@ -2845,6 +3346,26 @@ static bool parseObjects(const Element& root, Scene* scene)
 		else if (iter.second.element->id == "Material")
 		{
 			obj = parseMaterial(*scene, *iter.second.element);
+
+			if (!obj.isError())
+			{
+				if (nullptr != obj.getValue())
+				{
+					scene->mMaterials.push_back((Material*)obj.getValue());
+				}
+			}
+		}
+		else if (iter.second.element->id == "Constraint")
+		{
+			//obj = parseConstraint(*scene, *iter.second.element);
+			obj = parse<ConstraintImpl>(*scene, *iter.second.element);
+			if (!obj.isError())
+			{
+				if (nullptr != obj.getValue())
+				{
+					scene->mConstraints.push_back( (Constraint*)obj.getValue());
+				}
+			}
 		}
 		else if (iter.second.element->id == "AnimationStack")
 		{
@@ -2852,8 +3373,11 @@ static bool parseObjects(const Element& root, Scene* scene)
 			if (!obj.isError())
 			{
 				AnimationStackImpl* stack = (AnimationStackImpl*)obj.getValue();
-				parseAnimationStack(stack);
-				scene->m_animation_stacks.push_back(stack);
+				if (nullptr != stack)
+				{
+					parseAnimationStack(stack);
+					scene->m_animation_stacks.push_back(stack);
+				}
 			}
 		}
 		else if (iter.second.element->id == "AnimationLayer")
@@ -2908,14 +3432,41 @@ static bool parseObjects(const Element& root, Scene* scene)
 				else if (class_prop->getValue() == "Root")
 					obj = parse<NullImpl>(*scene, *iter.second.element);
 				else if (class_prop->getValue() == "Camera")
+				{
 					obj = parse<CameraImpl>(*scene, *iter.second.element);
+					if (!obj.isError())
+					{
+						scene->mCameras.push_back((Camera*)obj.getValue());
+					}
+				}
+				else if (class_prop->getValue() == "Light")
+				{
+					obj = parse<LightImpl>(*scene, *iter.second.element);
+					if (!obj.isError())
+					{
+						scene->mLights.push_back((Light*)obj.getValue());
+					}
+				}
+				
 			}
 		}
 		else if (iter.second.element->id == "Texture")
 		{
 			obj = parseTexture(*scene, *iter.second.element);
 		}
+		else if (iter.second.element->id == "MotionBuilder_Generic")
+		{
+			obj = parseGeneric(*scene, *iter.second.element);
 
+			if (!obj.isError() && nullptr != obj.getValue())
+			{
+				if (Object::Type::SHADER == obj.getValue()->getType())
+				{
+					scene->m_shaders.push_back((Shader*)obj.getValue());
+				}
+			}
+		}
+		
 		if (obj.isError()) return false;
 
 		scene->m_object_map[iter.first].object = obj.getValue();
@@ -2933,6 +3484,28 @@ static bool parseObjects(const Element& root, Scene* scene)
 		if (!child) continue;
 		if (!parent) continue;
 
+		PropertyBase *objProperty = child->mProperties.GetFirst();
+
+		if (Scene::Connection::OBJECT_PROPERTY == con.type)
+		{
+			if (Object::Type::NODE_ATTRIBUTE != child->getType()
+				&& Object::Type::ANIMATION_CURVE_NODE != child->getType())
+			{
+				while (objProperty)
+				{
+					if (con.property == objProperty->GetName() 
+						&& ePT_object == objProperty->GetPropertyType())
+					{
+						objProperty->SetData(child);
+						break;
+					}
+					objProperty = objProperty->GetNext();
+				}
+			}
+		}
+
+		objProperty = child->mProperties.GetFirst();
+
 		switch (child->getType())
 		{
 			case Object::Type::NODE_ATTRIBUTE:
@@ -2949,7 +3522,7 @@ static bool parseObjects(const Element& root, Scene* scene)
 					Model *pModel = (Model*)parent;
 
 					AnimationCurveNodeImpl* node = (AnimationCurveNodeImpl*)child;
-					node->bone = parent;
+					node->mOwner = parent;
 					node->bone_link_property = con.property;
 
 					pModel->mAnimationNodes.push_back(node);
@@ -2964,6 +3537,18 @@ static bool parseObjects(const Element& root, Scene* scene)
 						node->mode = ANIMATIONNODE_TYPE_VISIBILITY;
 					else if (con.property == ANIMATIONNODE_TYPENAME_FIELDOFVIEW)
 						node->mode = ANIMATIONNODE_TYPE_FIELD_OF_VIEW;
+
+				}
+
+				while (objProperty)
+				{
+					if (con.property == objProperty->GetName() && objProperty->IsAnimatable())
+					{
+						AnimationCurveNodeImpl* node = (AnimationCurveNodeImpl*)child;
+						((PropertyAnimatable*)objProperty)->AttachAnimationNode(node);
+						break;
+					}
+					objProperty = objProperty->GetNext();
 				}
 				break;
 		}
@@ -3003,6 +3588,7 @@ static bool parseObjects(const Element& root, Scene* scene)
 				}
 				break;
 			}
+			
 			case Object::Type::MATERIAL:
 			{
 				MaterialImpl* mat = (MaterialImpl*)parent;
@@ -3051,8 +3637,6 @@ static bool parseObjects(const Element& root, Scene* scene)
 				if (child->getType() == Object::Type::ANIMATION_LAYER)
 				{
 					AnimationLayerImpl *player = (AnimationLayerImpl*)child;
-					player->InitProperties();
-
 					((AnimationStackImpl*)parent)->mLayers.push_back(player);
 				}
 			}break;
@@ -3064,12 +3648,6 @@ static bool parseObjects(const Element& root, Scene* scene)
 					pNode->mLayer = (AnimationLayerImpl*)parent;
 
 					((AnimationLayerImpl*)parent)->curve_nodes.push_back(pNode);
-
-					// check if node is this layer weight
-					if (con.property == "Weight")
-					{
-						((AnimationLayerImpl*)parent)->weightAnimNode = pNode;
-					}
 				}
 				else if (child->getType() == Object::Type::ANIMATION_LAYER)
 				{
@@ -3085,22 +3663,8 @@ static bool parseObjects(const Element& root, Scene* scene)
 				AnimationCurveNodeImpl* node = (AnimationCurveNodeImpl*)parent;
 				if (child->getType() == Object::Type::ANIMATION_CURVE)
 				{
-					if (!node->curves[0].curve)
-					{
-						node->curves[0].connection = &con;
-						node->curves[0].curve = (AnimationCurve*)child;
-					}
-					else if (!node->curves[1].curve)
-					{
-						node->curves[1].connection = &con;
-						node->curves[1].curve = (AnimationCurve*)child;
-					}
-					else if (!node->curves[2].curve)
-					{
-						node->curves[2].connection = &con;
-						node->curves[2].curve = (AnimationCurve*)child;
-					}
-					else
+
+					if (false == node->AttachCurve((AnimationCurve*)child, &con) )
 					{
 						Error::s_message = "Invalid animation node";
 						return false;
@@ -3116,6 +3680,9 @@ static bool parseObjects(const Element& root, Scene* scene)
 		Object* obj = iter.second.object;
 		if (!obj) continue;
 
+		//
+		obj->Retrieve();
+
 		if (Object::Type::CLUSTER == obj->getType())
 		{
 			if (!((ClusterImpl*)iter.second.object)->postprocess())
@@ -3128,15 +3695,20 @@ static bool parseObjects(const Element& root, Scene* scene)
 		{
 			((AnimationStackImpl*)iter.second.object)->sortLayers();
 		}
+		/*
 		else if (Object::Type::LIMB_NODE == obj->getType())
 		{
-			((LimbNodeImpl*)obj)->prepProperties();
+			((LimbNodeImpl*)obj)->PrepProperties();
 		}
 		else if (Object::Type::NULL_NODE == obj->getType())
 		{
-			((NullImpl*)obj)->prepProperties();
+			((NullImpl*)obj)->Retrieve();
 		}
-
+		else if (Object::Type::CAMERA == obj->getType())
+		{
+			((CameraImpl*)obj)->PrepProperties();
+		}
+		*/
 		// pre-cache scene models hierarchy
 		if (true == obj->isNode())
 		{
@@ -3146,8 +3718,9 @@ static bool parseObjects(const Element& root, Scene* scene)
 			{
 				if (parent->isNode()) // scene->m_root != parent
 				{
-					((Model*)obj)->mParent = (Model*)parent;
-					((Model*)parent)->mChildren.push_back((Model*)obj);
+					//((Model*)obj)->mParent = (Model*)parent;
+					//((Model*)parent)->mChildren.push_back((Model*)obj);
+					((Model*)parent)->AddChild((Model*)obj);
 				}
 				
 				idx += 1;
@@ -3156,80 +3729,63 @@ static bool parseObjects(const Element& root, Scene* scene)
 		}
 	}
 
+
 	return true;
 }
 
-
-RotationOrder Model::getRotationOrder() const
+void Model::AddChild(Model *pChild)
 {
-	// This assumes that the default rotation order is EULER_XYZ.
-	return (RotationOrder) resolveEnumProperty(*this, "RotationOrder", (int) RotationOrder::EULER_XYZ);
+	pChild->mParent = this;
+
+	if (nullptr == mFirstChild)
+	{
+		mFirstChild = pChild;
+		pChild->mNext = nullptr;
+		pChild->mPrev = nullptr;
+	}
+	else
+	{
+		Model *pLast = mFirstChild;
+		while (nullptr != pLast->GetNext())
+			pLast = pLast->GetNext();
+
+		pLast->mNext = pChild;
+		pChild->mPrev = pLast;
+		pChild->mNext = nullptr;
+	}
 }
 
 
-Vec3 Model::getRotationOffset() const
-{
-	return resolveVec3Property(*this, "RotationOffset", {0.0, 0.0, 0.0});
-}
 
-
-Vec3 Model::getRotationPivot() const
-{
-	return resolveVec3Property(*this, "RotationPivot", {0, 0, 0});
-}
-
-
-Vec3 Model::getPostRotation() const
-{
-	return resolveVec3Property(*this, "PostRotation", {0, 0, 0});
-}
-
-
-Vec3 Model::getScalingOffset() const
-{
-	return resolveVec3Property(*this, "ScalingOffset", {0, 0, 0});
-}
-
-
-Vec3 Model::getScalingPivot() const
-{
-	return resolveVec3Property(*this, "ScalingPivot", {0, 0, 0});
-}
-
-bool VectorIsZero(const Vec3 &v)
-{
-	return (0.0 == v.x && 0.0 == v.y && 0.0 == v.z);
-}
-
-bool Model::evalLocal(Matrix &result, const Vec3& translation, const Vec3& rotation, const Vec3 &scaling) const
+bool Model::evalLocal(OFBMatrix *result, const OFBVector3& translation, const OFBVector3& rotation, const OFBVector3 &scaling) const
 {
 	//Vec3 scaling = getLocalScaling();
-	Vec3 rotation_pivot = getRotationPivot();
-	Vec3 scaling_pivot = getScalingPivot();
-	Vec3 preRotation = { 0.0, 0.0, 0.0 }; // getPreRotation();
-	Vec3 postRotation = { 0.0, 0.0, 0.0 }; // getPostRotation();
-	Vec3 rotationOffset = getRotationOffset();
-	Vec3 scalingOffset = getScalingOffset();
-	RotationOrder rotation_order = RotationOrder::EULER_XYZ;
+	OFBVector3 rotation_pivot = RotationPivot;
+	OFBVector3 scaling_pivot = ScalingPivot;
+	OFBVector3 preRotation = { 0.0, 0.0, 0.0 }; // getPreRotation();
+	OFBVector3 postRotation = { 0.0, 0.0, 0.0 }; // getPostRotation();
+	OFBVector3 rotationOffset = RotationOffset;
+	OFBVector3 scalingOffset = ScalingOffset;
+	OFBRotationOrder rotation_order = OFBRotationOrder::eEULER_XYZ;
 	
-	bool enableRotationDOF = resolveBoolProperty(*this, "RotationActive", false);
+	bool enableRotationDOF = RotationActive;
 
 	if (enableRotationDOF)
 	{
-		rotation_order = getRotationOrder();
-		preRotation = getPreRotation();
-		postRotation = getPostRotation();
+		rotation_order = RotationOrder;
+		preRotation = PreRotation;
+		postRotation = PostRotation;
 	}
 	
-	Matrix s = makeIdentity();
+	OFBMatrix s = makeIdentity();
 	s.m[0] = scaling.x;
 	s.m[5] = scaling.y;
 	s.m[10] = scaling.z;
 
-	Matrix t = makeIdentity();
+	OFBMatrix t = makeIdentity();
 	setTranslation(translation, &t);
 
-	Matrix r = getRotationMatrix(rotation, rotation_order);
+	OFBMatrix r = getRotationMatrix(rotation, rotation_order);
 
 	// choose between simple and complex calculation way
 
@@ -3237,76 +3793,52 @@ bool Model::evalLocal(Matrix &result, const Vec3& translation, const Vec3& rotat
 		&& VectorIsZero(preRotation) && VectorIsZero(postRotation)
 		&& VectorIsZero(rotationOffset) && VectorIsZero(scalingOffset))
 	{
-		result = t * r * s;
+		*result = t * r * s;
 	}
 	else
 	{
-		Matrix r_pre = getRotationMatrix(preRotation, RotationOrder::EULER_XYZ);
-		Matrix r_post_inv = getRotationMatrix(-postRotation, RotationOrder::EULER_ZYX);
+		OFBMatrix r_pre = getRotationMatrix(preRotation, OFBRotationOrder::eEULER_XYZ);
+		OFBMatrix r_post_inv = getRotationMatrix(-postRotation, OFBRotationOrder::eEULER_ZYX);
 
-		Matrix r_off = makeIdentity();
+		OFBMatrix r_off = makeIdentity();
 		setTranslation(rotationOffset, &r_off);
 
-		Matrix r_p = makeIdentity();
+		OFBMatrix r_p = makeIdentity();
 		setTranslation(rotation_pivot, &r_p);
 
-		Matrix r_p_inv = makeIdentity();
+		OFBMatrix r_p_inv = makeIdentity();
 		setTranslation(-rotation_pivot, &r_p_inv);
 
-		Matrix s_off = makeIdentity();
+		OFBMatrix s_off = makeIdentity();
 		setTranslation(scalingOffset, &s_off);
 
-		Matrix s_p = makeIdentity();
+		OFBMatrix s_p = makeIdentity();
 		setTranslation(scaling_pivot, &s_p);
 
-		Matrix s_p_inv = makeIdentity();
+		OFBMatrix s_p_inv = makeIdentity();
 		setTranslation(-scaling_pivot, &s_p_inv);
 
 		// http://help.autodesk.com/view/FBX/2017/ENU/?guid=__files_GUID_10CDD63C_79C1_4F2D_BB28_AD2BE65A02ED_htm
-		result = t * r_off * r_p * r_pre * r * r_post_inv * r_p_inv * s_off * s_p * s * s_p_inv;
+		*result = t * r_off * r_p * r_pre * r * r_post_inv * r_p_inv * s_off * s_p * s * s_p_inv;
 	}
 	
 	return true;
 }
 
 
-Vec3 Model::getLocalTranslation() const
-{
-	return resolveVec3Property(*this, "Lcl Translation", {0, 0, 0});
-}
-
-
-Vec3 Model::getPreRotation() const
-{
-	return resolveVec3Property(*this, "PreRotation", {0, 0, 0});
-}
-
-
-Vec3 Model::getLocalRotation() const
-{
-	return resolveVec3Property(*this, "Lcl Rotation", {0, 0, 0});
-}
-
-
-Vec3 Model::getLocalScaling() const
-{
-	return resolveVec3Property(*this, "Lcl Scaling", {1, 1, 1});
-}
-
-
-Matrix Model::getGlobalTransform() const
+OFBMatrix Model::getGlobalTransform() const
 {
 	const Object* parent = getParents(0);
 	if (!parent || !parent->isNode()) 
 	{
-		Matrix tm;
-		evalLocal(tm, getLocalTranslation(), getLocalRotation(), getLocalScaling());
+		OFBMatrix tm;
+		evalLocal(&tm, Translation, Rotation, Scaling);
 		return tm;
 	}
 
 	Model *pParentModel = (Model*)parent;
-	Matrix tm;
-	evalLocal(tm, getLocalTranslation(), getLocalRotation(), getLocalScaling());
+	OFBMatrix tm;
+	evalLocal(&tm, Translation, Rotation, Scaling);
 	tm = pParentModel->getGlobalTransform() * tm;
 
 	return tm;
@@ -3400,6 +3932,103 @@ Object* Object::getParents(int idx) const
 	return parent;
 }
 
+bool Object::Retrieve()
+{
+	int ivalue;
+	double dvalue[4];
+	char temp[64];
+	// 1 - read from a templates
+
+	if (nullptr != node_attribute)
+	{
+		Element *pelem = (Element*)&node_attribute->element;
+		const Element* prop = findChild(*pelem, "Properties70");
+
+		
+
+		if (prop) prop = prop->child;
+		while (prop)
+		{
+			if (prop->id == "P" && prop->first_property)
+			{
+				memset(temp, 0, sizeof(char)* 64);
+				prop->first_property->getValue().toString(temp);
+
+				PropertyBase *objProp = mProperties.Find(temp);
+
+				if (nullptr != objProp)
+				{
+					switch (objProp->GetPropertyType())
+					{
+					case ePT_enum:
+					case ePT_int:
+						ivalue = prop->getProperty(4)->getValue().toInt();
+						objProp->SetData(&ivalue);
+						break;
+					case ePT_double:
+						dvalue[0] = prop->getProperty(4)->getValue().toDouble();
+						objProp->SetData(dvalue);
+						break;
+					case ePT_ColorRGB:
+					case ePT_Vector3D:
+						dvalue[0] = prop->getProperty(4)->getValue().toDouble();
+						dvalue[1] = prop->getProperty(5)->getValue().toDouble();
+						dvalue[2] = prop->getProperty(6)->getValue().toDouble();
+						objProp->SetData(dvalue);
+						break;
+					}
+
+				}
+			}
+			prop = prop->sibling;
+		}
+	}
+
+	// 2 - load from object
+
+
+	const Element* props = findChild((const Element&)element, "Properties70");
+	if (nullptr != props) 
+	{
+		Element* prop = props->child;
+		while (prop)
+		{
+			memset(temp, 0, sizeof(char)* 64);
+			prop->first_property->getValue().toString(temp);
+
+			PropertyBase *objProp = mProperties.Find(temp);
+
+			if (nullptr != objProp)
+			{
+				switch (objProp->GetPropertyType())
+				{
+				case ePT_enum:
+				case ePT_int:
+					ivalue = prop->getProperty(4)->getValue().toInt();
+					objProp->SetData(&ivalue);
+					break;
+				case ePT_double:
+					dvalue[0] = prop->getProperty(4)->getValue().toDouble();
+					objProp->SetData(dvalue);
+					break;
+				case ePT_Vector3D:
+					dvalue[0] = prop->getProperty(4)->getValue().toDouble();
+					dvalue[1] = prop->getProperty(5)->getValue().toDouble();
+					dvalue[2] = prop->getProperty(6)->getValue().toDouble();
+					objProp->SetData(dvalue);
+					break;
+				}
+
+			}
+			
+			prop = prop->sibling;
+		}
+	}
+	
+	
+	return true;
+}
+
 IScene* load(const u8* data, int size)
 {
 	std::unique_ptr<Scene> scene = std::make_unique<Scene>();
@@ -3460,7 +4089,7 @@ bool AnimationStackImpl::sortLayers()
 		AnimationLayerImpl *implA = (AnimationLayerImpl*)a;
 		AnimationLayerImpl *implB = (AnimationLayerImpl*)b;
 
-		return (implA->mLayerID < implB->mLayerID);
+		return (implA->LayerID < implB->LayerID);
 	});
 
 	return true;
@@ -3468,7 +4097,7 @@ bool AnimationStackImpl::sortLayers()
 
 const int Model::GetAnimationNodeCount() const
 {
-	return (int)mAnimationNodes.size();
+	return  (int)mAnimationNodes.size();
 }
 
 const AnimationCurveNode *Model::GetAnimationNode(int index) const
@@ -3478,6 +4107,7 @@ const AnimationCurveNode *Model::GetAnimationNode(int index) const
 
 const AnimationCurveNode *Model::FindAnimationNode(const char *key, const AnimationLayer *pLayer) const
 {
+	/*
 	for (auto iter = begin(mAnimationNodes); iter != end(mAnimationNodes); ++iter)
 	{
 		AnimationCurveNodeImpl *pNode = (AnimationCurveNodeImpl*)*iter;
@@ -3487,11 +4117,13 @@ const AnimationCurveNode *Model::FindAnimationNode(const char *key, const Animat
 			return pNode;
 		}
 	}
+	*/
 	return nullptr;
 }
 
 const AnimationCurveNode *Model::FindAnimationNodeByType(const int typeId, const AnimationLayer *pLayer) const
 {
+	/*
 	for (auto iter = begin(mAnimationNodes); iter != end(mAnimationNodes); ++iter)
 	{
 		AnimationCurveNodeImpl *pNode = (AnimationCurveNodeImpl*)*iter;
@@ -3500,8 +4132,98 @@ const AnimationCurveNode *Model::FindAnimationNodeByType(const int typeId, const
 			return pNode;
 		}
 	}
+	*/
 	return nullptr;
 }
+
+void Model::GetMatrix(OFBMatrix &pMatrix, ModelTransformationType pWhat, bool pGlobalInfo, const OFBTime *pTime) const
+{
+	OFBTime lTime((nullptr != pTime) ? pTime->Get() : gDisplayInfo.localTime.Get());
+
+	if (mCacheTime.Get() != lTime.Get())
+	{
+		OFBVector3	t, r, s;
+
+		Translation.GetData(&t.x, sizeof(OFBVector3), &lTime);
+		Rotation.GetData(&r.x, sizeof(OFBVector3), &lTime);
+		Scaling.GetData(&s.x, sizeof(OFBVector3), &lTime);
+
+		//mLocalCache = makeIdentity();
+		evalLocal( (OFBMatrix*) &mLocalCache, t, r, s);
+
+		// eval a new cache
+		if (true == pGlobalInfo)
+		{
+			if (nullptr != mParent)
+			{
+				OFBMatrix parentTM;
+				mParent->GetMatrix(parentTM, eModelTransformation, true, &lTime);
+
+				OFBMatrix tm;// = parentTM * mLocalCache;
+				MatrixMult(tm, parentTM, mLocalCache);
+
+				// cache values
+				memcpy((void*)&mGlobalCache.m[0], &tm.m[0], sizeof(OFBMatrix));
+			}
+			else
+			{
+				memcpy((void*)&mGlobalCache.m[0], &mLocalCache.m[0], sizeof(OFBMatrix));
+			}
+			((OFBTime*)&mCacheTime)->Set(lTime.Get());
+		}
+		
+	}
+	
+	pMatrix = (true == pGlobalInfo) ? mGlobalCache : mLocalCache;
+}
+
+void Model::GetVector(OFBVector3 &pVector, ModelTransformationType pWhat, bool pGlobalInfo, const OFBTime *pTime) const
+{
+	if (true == pGlobalInfo)
+	{
+		OFBMatrix temp;
+		GetMatrix(temp, eModelTransformation, pGlobalInfo, pTime);
+
+		// TODO: calculate real rotation and scaling
+
+		if (eModelTranslation == pWhat)
+		{
+			pVector.x = temp.m[12];
+			pVector.y = temp.m[13];
+			pVector.z = temp.m[14];
+		}
+		else if (eModelRotation == pWhat)
+		{
+			pVector = Vector_Zero();
+		}
+		else if (eModelScaling == pWhat)
+		{
+			pVector = MatrixGetScale(temp);
+		}
+	}
+	else
+	{
+		if (eModelTranslation == pWhat)
+			Translation.GetData(&pVector.x, sizeof(OFBVector3), pTime);
+		else if (eModelRotation == pWhat)
+			Rotation.GetData(&pVector.x, sizeof(OFBVector3), pTime);
+		else if (eModelScaling == pWhat)
+			Scaling.GetData(&pVector.x, sizeof(OFBVector3), pTime);
+	}
+}
+
+void Model::GetRotation(OFBVector4 &pQuat, const OFBTime *pTime) const
+{
+	OFBMatrix temp;
+	GetMatrix(temp, eModelTransformation, true, pTime);
+	pQuat = MatrixGetRotation(temp);
+}
+
+/////////////////////////////////////////////////////////////////////
+// Object Properties
+
+
+
 
 
 } // namespace ofbx

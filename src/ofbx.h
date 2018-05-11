@@ -1,59 +1,74 @@
-#pragma once
+
+#ifndef _OFBX_H_
+#define _OFBX_H_
+
+// ofbx.h
+//
+// Original OpenFBX by Mikulas Florek (https://github.com/nem0/OpenFBX)
+//
+// Modified by Sergei <Neill3d> Solokhin (https://github.com/Neill3d/OpenFBX)
+//	
 
 #include <vector>
+#include "OFBTypes.h"
+#include "OFBTime.h"
+#include "OFBMath.h"
+#include "OFBProperty.h"
 
 namespace ofbx
 {
 
 
-typedef unsigned char u8;
-typedef unsigned short u16;
-typedef unsigned int u32;
-typedef unsigned long long u64;
-typedef signed long long i64;
+	//! Frame size modes.
+	enum OFBCameraFrameSizeMode {
+		eFrameSizeWindow,                    //!< Frame size of window.
+		eFrameSizeFixedRatio,                //!< Fixed ratio.
+		eFrameSizeFixedResolution,        //!< Fixed resolution.
+		eFrameSizeFixedWidthResolution,    //!< Fixed width resolution.
+		eFrameSizeFixedHeightResolution    //!< Fixed height resolution.
+	};
 
-static_assert(sizeof(u8) == 1, "u8 is not 1 byte");
-static_assert(sizeof(u32) == 4, "u32 is not 4 bytes");
-static_assert(sizeof(u64) == 8, "u64 is not 8 bytes");
-static_assert(sizeof(i64) == 8, "i64 is not 8 bytes");
+	//! \enum FBCameraResolutionMode
+	/**Resolution modes.*/
+	enum OFBCameraResolutionMode {
+		eResolutionCustom,                //!< Custom resolution mode or From Camera as a render setting.
+		eResolutionD1NTSC,                //!< D1 NTSC.
+		eResolutionNTSC,                    //!< NTSC.
+		eResolutionPAL,                    //!< PAL.
+		eResolutionD1PAL,                    //!< D1 PAL.
+		eResolutionHD,                    //!< HD 1920x1080.
+		eResolution640x480,                //!< 640x480.
+		eResolution320x200,                //!< 320x200.
+		eResolution320x240,                //!< 320x240.
+		eResolution128x128,                //!< 128x128.
+		eResolutionFullScreen                //!< FullScreen.
+	};
 
-struct Vec2
-{
-	double x, y;
-};
+	//! \enum FBCameraApertureMode
+	/** Aperture modes.*/
+	enum OFBCameraApertureMode {
+		eApertureVertical,                //!< Vertical aperture varies.
+		eApertureHorizontal,                //!< Horizontal aperture varies.
+		eApertureVertHoriz,                //!< Vertical and horizontal aperture varies.
+		eApertureFocalLength                //!< Focal Length aperture varies.
+	};
 
-
-
-struct Vec3
-{
-	double x, y, z;
-};
-
-
-
-struct Vec4
-{
-	double x, y, z, w;
-};
-
-
-struct Matrix
-{
-	double m[16]; // last 4 are translation
-};
-
-Matrix operator * (const Matrix&, const Matrix&);
-
-struct Quat
-{
-	double x, y, z, w;
-};
-
-
-struct Color
-{
-	float r, g, b;
-};
+	//! \enum FBCameraFilmBackType
+	/** Filmback types.*/
+	enum OFBCameraFilmBackType {
+		eFilmBackCustom,                    //!< Custom Filmback.
+		eFilmBack16mmTheatrical,            //!< 16mm Theatrical.
+		eFilmBackSuper16mm,                //!< Super16mm.
+		eFilmBack35mmAcademy,                //!< 35mm Academy.
+		eFilmBack35mmTVProjection,        //!< 35mm TV Projection.
+		eFilmBack35mmFullAperture,        //!< 35mm Full Aperture.
+		eFilmBack35mm185Projection,        //!< 35mm 185 Projection.
+		eFilmBack35mmAnamorphic,            //!< 35mm Anamorphic.
+		eFilmBack70mmProjection,            //!< 70mm Projection.
+		eFilmBackVistaVision,                //!< Vista Vision.
+		eFilmBackDynavision,                //!< Dynavision.
+		eFilmBackIMAX                        //!< IMAX.
+	};
 
 
 struct DataView
@@ -122,18 +137,6 @@ struct IElement
 	virtual IElementProperty* getFirstProperty() const = 0;
 };
 
-
-enum class RotationOrder {
-	EULER_XYZ,
-	EULER_XZY,
-	EULER_YZX,
-	EULER_YXZ,
-	EULER_ZXY,
-	EULER_ZYX,
-    SPHERIC_XYZ // Currently unsupported. Treated as EULER_XYZ.
-};
-
-double fbxTimeToSeconds(i64 value);
 
 //! Key tangent mode for cubic interpolation.
 enum ETangentMode
@@ -236,17 +239,49 @@ enum AnimationNodeType
 	ANIMATIONNODE_TYPE_FIELD_OF_VIEW
 };
 
-enum CameraType
-{
-	kFBCameraTypePerspective,
-	kFBCameraTypeOrhogonal
+#define ANIMATIONNODE_TYPENAME_TRANSLATION	"Lcl Translation"
+#define ANIMATIONNODE_TYPENAME_ROTATION		"Lcl Rotation"
+#define ANIMATIONNODE_TYPENAME_SCALING		"Lcl Scaling"
+#define ANIMATIONNODE_TYPENAME_VISIBILITY	"Visibility"
+#define ANIMATIONNODE_TYPENAME_FIELDOFVIEW	"Field Of View"
+
+//! Types of transformation vector/matrices possible.
+enum ModelTransformationType {
+	eModelTransformation,                   //!< Transformation.
+	eModelRotation,                         //!< Rotation.
+	eModelTranslation,                      //!< Translation.
+	eModelScaling,                          //!< Scaling.
+	eModelTransformation_Geometry,          //!< Transformation plus geometry offset  
+	eModelInverse_Transformation,           //!< Inverse transformation.
+	eModelInverse_Rotation,                 //!< Inverse rotation.
+	eModelInverse_Translation,              //!< Inverse translation.
+	eModelInverse_Scaling,                  //!< Inverse scaling.
+	eModelInverse_Transformation_Geometry   //!< Inverse of transformation plus geometry offset
 };
 
+enum CameraType
+{
+	eCameraTypePerspective,
+	eCameraTypeOrhogonal
+};
+
+//! \enum FBCameraMatrixType
+/**Camera matrix types in OpenGL convention.*/
+enum CameraMatrixType {
+	eProjection,                      //!< Camera's Projection matrix.
+	eModelView,                       //!< Camera's combined Model-View matrix.
+	eModelViewProj,                   //!< Camera's combined Model-View-Projection matrix.
+	eProjInverse                      //!< Camera's Projection Inverse matrix.
+};
+
+struct Object;
 struct AnimationCurveNode;
 struct AnimationLayer;
 struct Scene;
 struct IScene;
 
+///////////////////////////////////////////////////////////////////////////////////////////
+// Object
 
 struct Object
 {
@@ -265,6 +300,7 @@ struct Object
 		NODE_ATTRIBUTE,
 		CLUSTER,
 		SKIN,
+		CONSTRAINT,
 		ANIMATION_STACK,
 		ANIMATION_LAYER,
 		ANIMATION_CURVE,
@@ -298,7 +334,19 @@ struct Object
 	const void *eval_data;
 	const void *render_data;
 
-	bool Selected;
+	//bool Selected;
+	//PropertyString			Name;
+	PropertyBool			Selected;
+
+	PropertyList			mProperties;
+
+	// retrive properties values and connections
+	virtual bool Retrieve();
+
+	void PropertyAdd(PropertyBase *pProperty)
+	{
+		mProperties.Add(pProperty);
+	}
 
 protected:
 	
@@ -306,6 +354,9 @@ protected:
 	const Scene& scene;
 };
 
+
+///////////////////////////////////////////////////////////////////////////////////
+// Texture
 
 struct Texture : Object
 {
@@ -320,10 +371,16 @@ struct Texture : Object
 	static const Type s_type = Type::TEXTURE;
 
 	Texture(const Scene& _scene, const IElement& _element);
-	virtual DataView getFileName() const = 0;
-	virtual DataView getRelativeFileName() const = 0;
+
+	PropertyString		FileName;
+	PropertyString		RelativeFileName;
+
+	//virtual DataView getFileName() const = 0;
+	//virtual DataView getRelativeFileName() const = 0;
 };
 
+////////////////////////////////////////////////////////////////////////////////////////
+// Material
 
 struct Material : Object
 {
@@ -331,10 +388,22 @@ struct Material : Object
 
 	Material(const Scene& _scene, const IElement& _element);
 
-	virtual Color getDiffuseColor() const = 0;
+	virtual OFBColor getDiffuseColor() const = 0;
 	virtual const Texture* getTexture(Texture::TextureType type) const = 0;
 };
 
+/////////////////////////////////////////////////////////////////////////////////////////
+// Shader
+
+struct Shader : Object
+{
+	static const Type s_type = Type::SHADER;
+
+	Shader(const Scene& _scene, const IElement& _element);
+};
+
+///////////////////////////////////////////////////////////////////////////////////////////
+// Cluster
 
 struct Cluster : Object
 {
@@ -346,11 +415,13 @@ struct Cluster : Object
 	virtual int getIndicesCount() const = 0;
 	virtual const double* getWeights() const = 0;
 	virtual int getWeightsCount() const = 0;
-	virtual Matrix getTransformMatrix() const = 0;
-	virtual Matrix getTransformLinkMatrix() const = 0;
+	virtual OFBMatrix getTransformMatrix() const = 0;
+	virtual OFBMatrix getTransformLinkMatrix() const = 0;
 	virtual const Object* getLink() const = 0;
 };
 
+/////////////////////////////////////////////////////////////////////////////////////////////
+// Skin
 
 struct Skin : Object
 {
@@ -362,6 +433,8 @@ struct Skin : Object
 	virtual const Cluster* getCluster(int idx) const = 0;
 };
 
+/////////////////////////////////////////////////////////////////////////////////////////////
+// NodeAttribute
 
 struct NodeAttribute : Object
 {
@@ -372,6 +445,8 @@ struct NodeAttribute : Object
 	virtual DataView getAttributeType() const = 0;
 };
 
+/////////////////////////////////////////////////////////////////////////////////////////////
+// Geometry
 
 struct Geometry : Object
 {
@@ -379,54 +454,61 @@ struct Geometry : Object
 
 	Geometry(const Scene& _scene, const IElement& _element);
 
-	virtual const Vec3* getVertices() const = 0;
+	virtual const OFBVector3* getVertices() const = 0;
 	virtual int getVertexCount() const = 0;
 
-	virtual const Vec3* getNormals() const = 0;
-	virtual const Vec2* getUVs() const = 0;
-	virtual const Vec4* getColors() const = 0;
-	virtual const Vec3* getTangents() const = 0;
+	virtual const OFBVector3* getNormals() const = 0;
+	virtual const OFBVector2* getUVs() const = 0;
+	virtual const OFBVector4* getColors() const = 0;
+	virtual const OFBVector3* getTangents() const = 0;
 	virtual const Skin* getSkin() const = 0;
 	virtual const int* getMaterials() const = 0;
 };
 
+///////////////////////////////////////////////////////////////////////////////////////////////
+// Model
 
 struct Model : Object
 {
-
+	//! a constructor
 	Model(const Scene& _scene, const IElement& _element);
 
-	/*
-	Vec3 getLocalTranslation() const;
-	Vec3 getLocalRotation() const;
-	Vec3 getLocalScaling() const;
+	//
+	PropertyBool						Show;
+	PropertyAnimatableVector3			Translation;
+	PropertyAnimatableVector3			Rotation;
+	PropertyAnimatableVector3			Scaling;
 
-	AnimationCurveNode *getLocalTranslationAnimNode() const;
-	AnimationCurveNode *getLocalRotationAnimNode() const;
-	AnimationCurveNode *getLocalScalingAnimNode() const;
-	*/
-	RotationOrder getRotationOrder() const;
-	Vec3 getRotationOffset() const;
-	Vec3 getRotationPivot() const;
-	Vec3 getPostRotation() const;
-	Vec3 getScalingOffset() const;
-	Vec3 getScalingPivot() const;
-	Vec3 getPreRotation() const;
-	Vec3 getLocalTranslation() const;
-	Vec3 getLocalRotation() const;
-	Vec3 getLocalScaling() const;
-	Matrix getGlobalTransform() const;
-	bool evalLocal(Matrix &result, const Vec3& translation, const Vec3& rotation, const Vec3 &scaling) const;
+	PropertyBool							RotationActive;
+	PropertyBaseEnum<OFBRotationOrder>		RotationOrder;
+	PropertyVector3							RotationOffset;
+	PropertyVector3							RotationPivot;
+	
+	PropertyVector3							ScalingOffset;
+	PropertyVector3							ScalingPivot;
 
+	PropertyVector3					PreRotation;
+	PropertyVector3					PostRotation;
+	
+
+	OFBMatrix getGlobalTransform() const;
+	
 	Model *Parent() const {
 		return mParent;
 	}
 
-	const std::vector<Model*> &Children() const {
-		return mChildren;
+	Model* Children() const {
+		return mFirstChild;
 	}
 
-	const bool getShow() const;
+	Model *GetNext() const {
+		return mNext;
+	}
+	Model *GetPrev() const {
+		return mPrev;
+	}
+
+	void AddChild(Model *pChild);
 
 	const int GetAnimationNodeCount() const;
 	const AnimationCurveNode *GetAnimationNode(int index) const;
@@ -438,10 +520,35 @@ struct Model : Object
 	const AnimationCurveNode *FindAnimationNodeByType(const int typeId, const	AnimationLayer *pLayer) const;
 
 	//
-	Model		*mParent;
-	std::vector<Model*>						mChildren;
+	void GetMatrix(OFBMatrix &pMatrix, ModelTransformationType pWhat = eModelTransformation, bool pGlobalInfo = true, const OFBTime *pTime = nullptr) const;
+	void GetVector(OFBVector3 &pVector, ModelTransformationType pWhat = eModelTranslation, bool pGlobalInfo = true, const OFBTime *pTime = nullptr) const;
+	void GetRotation(OFBVector4 &pQuat, const OFBTime *pTime = nullptr) const;
+
 	std::vector<AnimationCurveNode*>		mAnimationNodes;
+
+protected:
+
+	bool evalLocal(OFBMatrix *result, const OFBVector3& translation, const OFBVector3& rotation, const OFBVector3 &scaling) const;
+
+	//
+	OFBMatrix			mGlobalCache;
+	OFBMatrix			mLocalCache;
+	OFBTime				mCacheTime;
+
+	//
+	Model		*mParent;
+	//std::vector<Model*>						mChildren;
+	
+
+	Model					*mFirstChild;
+
+	// sibling children under a parent
+	Model					*mNext;
+	Model					*mPrev;
 };
+
+/////////////////////////////////////////////////////////////////////////////////////////////
+//
 
 struct Mesh : Model
 {
@@ -449,10 +556,16 @@ struct Mesh : Model
 
 	Mesh(const Scene& _scene, const IElement& _element);
 
+	PropertyVector3			GeometricTranslation;
+	PropertyVector3			GeometricRotation;
+	PropertyVector3			GeometricScaling;
+
 	virtual const Geometry* getGeometry() const = 0;
-	virtual Matrix getGeometricMatrix() const = 0;
+	virtual OFBMatrix getGeometricMatrix() const = 0;
 	virtual const Material* getMaterial(int idx) const = 0;
 	virtual int getMaterialCount() const = 0;
+
+	virtual bool IsStatic() const = 0;
 };
 
 struct ModelNull : Model
@@ -462,7 +575,8 @@ struct ModelNull : Model
 	ModelNull(const Scene& _scene, const IElement &_element);
 
 	// model null display size
-	virtual const double getSize() const = 0;
+	PropertyDouble			Size;
+	//virtual const double getSize() const = 0;
 };
 
 // core root element, scene root
@@ -473,7 +587,8 @@ struct SceneRoot : Model
 	SceneRoot(const Scene& _scene, const IElement &_element);
 
 	// model null display size
-	virtual const double getSize() const = 0;
+	//PropertyDouble		Size;
+	//virtual const double getSize() const = 0;
 };
 
 struct ModelSkeleton : Model
@@ -483,9 +598,12 @@ struct ModelSkeleton : Model
 	ModelSkeleton(const Scene& _scene, const IElement &_element);
 
 	// model null display size
-	virtual const double getSize() const = 0;
-	virtual const Vec3 getColor() const = 0;
+	PropertyDouble		Size;
+	PropertyColor		Color;
 };
+
+//////////////////////////////////////////////////////////////////////////////
+// Camera
 
 struct Camera : Model
 {
@@ -495,15 +613,75 @@ struct Camera : Model
 
 	// camera settings
 
-	// TODO: all these values could be animated
-	virtual const CameraType getCameraProjectionType() const = 0;
-	virtual const Vec3 getBackgroundColor() const = 0;
-	virtual const double getFieldOfView() const = 0;
-	virtual const double getNearPlane() const = 0;
-	virtual const double getFarPlane() const = 0;
+	PropertyVector3			Color;
+
+	PropertyVector3			Position;
+	PropertyVector3			UpVector;
+	PropertyVector3			InterestPosition;
+
+	PropertyDouble			OpticalCenterX;
+	PropertyDouble			OpticalCenterY;
+
+	PropertyAnimatableColor		BackgroundColor;
+	PropertyBool				UseFrameColor;
+	PropertyColor				FrameColor;
+
+	PropertyDouble			TurnTable;
+
+	PropertyBaseEnum<OFBCameraFrameSizeMode>			AspectRatioMode;
+	PropertyDouble			AspectWidth;	// resolution width
+	PropertyDouble			AspectHeight;	// resolution height
+
+	PropertyDouble			PixelAspectRatio;
+	PropertyBaseEnum<OFBCameraApertureMode>	ApertureMode;
+	PropertyDouble			FilmOffsetX;
+	PropertyDouble			FilmOffsetY;
+	PropertyDouble			FilmWidth;
+	PropertyDouble			FilmHeight;
+	PropertyDouble			FilmAspectRatio;
+	PropertyDouble			FilmSqueezeRatio;
+	
+	// TODO: should be updated on application resize !
+	PropertyDouble			WindowWidth;
+	PropertyDouble			WindowHeight;
+
+	// TODO:
+	//PropertyInt				FilmFormatIndex;
+
+	PropertyBaseEnum<CameraType>	ProjectionType;
+
+
+	PropertyAnimatableDouble	Roll;
+
+
+	PropertyAnimatableDouble	FieldOfView;
+	
+	PropertyAnimatableDouble	FieldOfViewX;
+	
+	PropertyAnimatableDouble	FieldOfViewY;
+	
+	PropertyAnimatableDouble	FocalLength;
+
+	PropertyDouble				NearPlane;
+	PropertyDouble				FarPlane;
+	
+	PropertyObject				Target;
 
 	// pre-cached or controled by transformer
-	Matrix		mModelView;
+	// why it's here ?!
+	//Matrix		mModelView;
+
+	virtual bool GetCameraMatrix(float *pMatrix, CameraMatrixType pType, const OFBTime *pTime = nullptr) = 0;
+	virtual bool GetCameraMatrix(double *pMatrix, CameraMatrixType pType, const OFBTime *pTime = nullptr) = 0;
+
+	// override camera matrix
+	virtual void SetCameraMatrix(const float *pMatrix, CameraMatrixType pType) = 0;
+	virtual void SetCameraMatrix(const double *pMatrix, CameraMatrixType pType) = 0;
+
+	// h - horizontal image dimention
+	virtual double ComputeFieldOfView(const double focal, const double h) const = 0;
+
+	virtual Model *GetTarget() const = 0;
 };
 
 struct Light : Model
@@ -511,6 +689,28 @@ struct Light : Model
 	static const Type s_type = Type::LIGHT;
 
 	Light(const Scene& _scene, const IElement &_element);
+};
+
+struct Constraint : Object
+{
+	static const Type s_type = Type::CONSTRAINT;
+
+	Constraint(const Scene &_scene, const IElement &_element);
+
+
+	// DONE: weight could be animated !!
+	PropertyBool					Active;
+	PropertyAnimatableDouble		Weight;
+	
+};
+
+// info for the one evaluation task
+struct EvaluationInfo
+{
+	OFBTime		localTime;
+	OFBTime		systemTime;
+
+	bool		IsStop;	// is playing or not
 };
 
 struct AnimationStack : Object
@@ -536,13 +736,17 @@ struct AnimationLayer : Object
 	virtual const AnimationCurveNode* getCurveNode(int index) const = 0;
 	virtual const AnimationCurveNode* getCurveNode(const Object& bone, const char* property) const = 0;
 
-	virtual bool isMute() const = 0;
-	virtual bool isSolo() const = 0;
+	PropertyInt		LayerID;	// rearranged order of layers, defined by users
 
-	// TODO: weight could be animated !!
-	virtual double getWeight() const = 0;
-	// if node is assigned, means we should evalute value from animation curve
-	virtual AnimationCurveNode *getWeightAnimNode() const = 0;
+	PropertyBool	Solo;		//!< <b>Read Write Property:</b> If true, the layer is soloed. When you solo a layer, you mute other layers that are at the same level in the hierarchy, as well as the children of those layers. Cannot be applied to the BaseAnimation Layer.
+	PropertyBool	Mute;		//!< <b>Read Write Property:</b> If true, the layer is muted. A muted layer is not included in the result animation. Cannot be applied to the BaseAnimation Layer.
+	PropertyBool	Lock;		//!< <b>Read Write Property:</b> If true, the layer is locked. You cannot modify keyframes on a locked layer.
+
+	PropertyAnimatableDouble	Weight; //!< <b>Read Write Property:</b> The weight value of a layer determines how much it is present in the result animation. Takes a value from 0 (the layer is not present) to 100. The weighting of a parent layer is factored into the weighting of its child layers, if any. BaseAnimation Layer always has a Weight of 100. 
+
+	PropertyBaseEnum<FBLayerMode>			LayerMode;	//!< <b>Read Write Property:</b> Layer mode. By default, the layer is in kFBLayerModeAdditive mode. Cannot be applied to the BaseAnimation Layer.
+	PropertyBaseEnum<FBLayerRotationMode>	LayerRotationMode; //!< <b>Read Only Property:</b> Layer rotation mode. Cannot be applied to the BaseAnimation Layer.
+
 
 	virtual int getSubLayerCount() const = 0;
 	virtual const AnimationLayer *getSubLayer(int index) const = 0;
@@ -560,7 +764,7 @@ struct AnimationCurve : Object
 	virtual const float* getKeyValue() const = 0;
 	virtual const int *getKeyFlag() const = 0;
 
-	virtual double Evaluate(const i64 time) const = 0;
+	virtual double Evaluate(const OFBTime &time) const = 0;
 };
 
 
@@ -570,13 +774,20 @@ struct AnimationCurveNode : Object
 
 	AnimationCurveNode(const Scene& _scene, const IElement& _element);
 
-	virtual Vec3 getNodeLocalTransform(double time) const = 0;
-	virtual const Object* getBone() const = 0;
+	virtual OFBVector3 getNodeLocalTransform(double time) const = 0;
+	virtual const Object* GetOwner() const = 0;
+	
+	// return next anim node linked under property layers stack (in order how layers have been sorted)
+	virtual AnimationCurveNode *GetNext() = 0;
+	virtual const AnimationCurveNode *GetNext() const = 0;
+	virtual void LinkNext(const AnimationCurveNode *pNext) = 0;
 
 	virtual AnimationLayer *getLayer() const = 0;
 
 	virtual int getCurveCount() const = 0;
 	virtual const AnimationCurve *getCurve(int index) const = 0;
+
+	virtual bool Evaluate(double *Data, const OFBTime pTime) const = 0;
 };
 
 
@@ -605,10 +816,33 @@ struct IScene
 	virtual const Object *const * getAllObjects() const = 0;
 	virtual int getAllObjectCount() const = 0;
 
+	virtual int GetConstraintCount() const = 0;
+	virtual const Constraint *GetConstraint(const int index) const = 0;
+
+	virtual int GetMaterialCount() const = 0;
+	virtual const Material *GetMaterial(const int index) const = 0;
+
+	virtual int GetShaderCount() const = 0;
+	virtual const Shader* GetShader(const int index) const = 0;
+
+	virtual int GetCameraCount() const = 0;
+	virtual const Camera *GetCamera(const int index) const = 0;
+
+	virtual int GetLightCount() const = 0;
+	virtual const Light *GetLight(const int index) const = 0;
+
+	// Run it On Take Change
+	// we should prep properties animation nodes for a current take (Stack)
+	virtual bool PrepTakeConnections(const int takeIndex) = 0;
+
 protected:
 	virtual ~IScene() {}
 };
 
+////////////////////////////////////////////////////////////////////////////////////////
+// global functions
+
+EvaluationInfo &GetDisplayInfo();
 
 IScene* load(const u8* data, int size);
 const char* getError();
@@ -616,3 +850,5 @@ const char* getError();
 Model *FindModelByLabelName(IScene *pScene, const char *name, const ofbx::Object *pRoot=nullptr);
 
 } // namespace ofbx
+
+#endif
