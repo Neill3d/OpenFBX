@@ -301,6 +301,7 @@ struct Object
 		CLUSTER,
 		SKIN,
 		CONSTRAINT,
+		CONSTRAINT_POSITION,
 		ANIMATION_STACK,
 		ANIMATION_LAYER,
 		ANIMATION_CURVE,
@@ -691,6 +692,9 @@ struct Light : Model
 	Light(const Scene& _scene, const IElement &_element);
 };
 
+/////////////////////////////////////////////////////////////////////////////////////////////
+// Constraint
+
 struct Constraint : Object
 {
 	static const Type s_type = Type::CONSTRAINT;
@@ -702,6 +706,33 @@ struct Constraint : Object
 	PropertyBool					Active;
 	PropertyAnimatableDouble		Weight;
 	
+	virtual bool Evaluate(const OFBTime *pTime = nullptr) = 0;
+};
+
+///////////////////////////////////////////////////////////////////////////////////////////////
+// Constraint Position
+
+struct ConstraintPosition : Constraint
+{
+	static const Type s_type = Type::CONSTRAINT_POSITION;
+
+	ConstraintPosition(const Scene &_scene, const IElement &_element);
+
+
+	// DONE: weight could be animated !!
+	PropertyBool					Active;
+	PropertyAnimatableDouble		Weight;
+
+	// TODO: should be arrays instead of single pointer !!
+	PropertyObject		ConstrainedObject;
+	PropertyObject		SourceObject;
+
+	PropertyBool		AffectX;
+	PropertyBool		AffectY;
+	PropertyBool		AffectZ;
+
+	PropertyAnimatableVector3		Translation;	// snap offset
+
 };
 
 // info for the one evaluation task

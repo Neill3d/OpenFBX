@@ -108,6 +108,7 @@ namespace ofbx
 			case ePT_bool:
 			case ePT_int:
 			case ePT_enum:
+			case ePT_object:
 				size = 4;
 				break;
 			case ePT_Vector3D:

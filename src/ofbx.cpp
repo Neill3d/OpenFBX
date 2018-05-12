@@ -1128,6 +1128,9 @@ struct NullImpl : ModelNull
 	//double mSize;
 };
 
+//////////////////////////////////////////////////////////////////////////////////////////
+// CameraImpl
+
 struct CameraImpl : Camera
 {
 	CameraImpl(const Scene& _scene, const IElement& _element)
@@ -1223,10 +1226,11 @@ struct CameraImpl : Camera
 	}
 	Type getType() const override { return Type::CAMERA; }
 
-	// TODO:
+	// DONE:
 	Model *GetTarget() const override
 	{
-		Object *pTarget = resolveObjectLink(Type::NULL_NODE, Target.GetName(), 0);
+		// resolveObjectLink(Type::NULL_NODE, Target.GetName(), 0);
+		Object *pTarget = Target;
 		return (Model*)pTarget;
 	}
 
@@ -1804,6 +1808,38 @@ struct ClusterImpl : Cluster
 Constraint::Constraint(const Scene& _scene, const IElement& _element)
 : Object(_scene, _element)
 {
+	Active.Init(this, "Active");
+	Weight.Init(this, "Weight");
+
+	
+	//
+	Active = false;
+	Weight = 100.0;
+}
+
+ConstraintPosition::ConstraintPosition(const Scene& _scene, const IElement& _element)
+: Constraint(_scene, _element)
+{
+	
+	ConstrainedObject.Init(this, "Constrained Object");
+	SourceObject.Init(this, "Source");
+
+	AffectX.Init(this, "AffectX");
+	AffectY.Init(this, "AffectY");
+	AffectZ.Init(this, "AffectZ");
+
+	Translation.Init(this, "Translation");
+
+	//
+	
+	ConstrainedObject = nullptr;
+	SourceObject = nullptr;
+
+	AffectX = true;
+	AffectY = true;
+	AffectZ = true;
+
+	Translation = Vector_Zero();
 }
 
 AnimationStack::AnimationStack(const Scene& _scene, const IElement& _element)
@@ -1829,17 +1865,63 @@ AnimationCurveNode::AnimationCurveNode(const Scene& _scene, const IElement& _ele
 {
 }
 
+////////////////////////////////////////////////////////////////////////////////////////
+// ConstraintImpl
 struct ConstraintImpl : Constraint
 {
 	ConstraintImpl(const Scene &_scene, const IElement &_element)
 	: Constraint(_scene, _element)
-	{
-		Active.Init(this, "Active");
-		Weight.Init(this, "Weight");
-	}
+	{}
 
 	Type getType() const override { return Type::CONSTRAINT; }
+
+	// 
+	bool Evaluate(const OFBTime *pTime) override
+	{
+		return false;
+	}
 };
+
+////////////////////////////////////////////////////////////////////////////////////////
+// ConstraintPositionImpl
+struct ConstraintPositionImpl : ConstraintPosition
+{
+	ConstraintPositionImpl(const Scene &_scene, const IElement &_element)
+	: ConstraintPosition(_scene, _element)
+	{
+	}
+
+	Type getType() const override { return Type::CONSTRAINT_POSITION; }
+
+	// 
+	bool Evaluate(const OFBTime *pTime) override
+	{
+		Object *pSrc = SourceObject;
+		Object *pDst = ConstrainedObject;
+
+		bool lAffectX = AffectX;
+		bool lAffectY = AffectY;
+		bool lAffectZ = AffectZ;
+
+		OFBVector3 offset;
+		Translation.GetData(&offset.x, sizeof(OFBVector3), pTime);
+
+		if (nullptr != pSrc && nullptr != pDst)
+		{
+			Model *pSrcModel = (Model*)pSrc;
+			Model *pDstModel = (Model*)pDst;
+
+			OFBVector3 v;
+			pSrcModel->GetVector(v, eModelTranslation, true, pTime);
+			//pDstModel->SetVector(v);
+		}
+
+		return true;
+	}
+};
+
+//////////////////////////////////////////////////////////////////////////////////////////
+// AnimationStackImpl
 
 struct AnimationStackImpl : AnimationStack
 {
@@ -3357,8 +3439,16 @@ static bool parseObjects(const Element& root, Scene* scene)
 		}
 		else if (iter.second.element->id == "Constraint")
 		{
-			//obj = parseConstraint(*scene, *iter.second.element);
-			obj = parse<ConstraintImpl>(*scene, *iter.second.element);
+			IElementProperty* class_prop = iter.second.element->getProperty(2);
+
+			if (class_prop)
+			{
+				if (class_prop->getValue() == "Position From Positions")
+					obj = parse<ConstraintPositionImpl>(*scene, *iter.second.element);
+				else
+					obj = parse<ConstraintImpl>(*scene, *iter.second.element);
+			}
+
 			if (!obj.isError())
 			{
 				if (nullptr != obj.getValue())
@@ -3484,19 +3574,24 @@ static bool parseObjects(const Element& root, Scene* scene)
 		if (!child) continue;
 		if (!parent) continue;
 
-		PropertyBase *objProperty = child->mProperties.GetFirst();
+		PropertyBase *objProperty = parent->mProperties.GetFirst();
 
 		if (Scene::Connection::OBJECT_PROPERTY == con.type)
 		{
-			if (Object::Type::NODE_ATTRIBUTE != child->getType()
-				&& Object::Type::ANIMATION_CURVE_NODE != child->getType())
+			if (con.property == "LookAtProperty")
+			{
+				printf("test\n");
+			}
+
+			if (Object::Type::ANIMATION_CURVE_NODE != child->getType() 
+				&& Object::Type::NODE_ATTRIBUTE != child->getType() )
 			{
 				while (objProperty)
 				{
 					if (con.property == objProperty->GetName() 
 						&& ePT_object == objProperty->GetPropertyType())
 					{
-						objProperty->SetData(child);
+						((PropertyObject*) objProperty)->SetPropertyValue(child);
 						break;
 					}
 					objProperty = objProperty->GetNext();
@@ -3504,7 +3599,7 @@ static bool parseObjects(const Element& root, Scene* scene)
 			}
 		}
 
-		objProperty = child->mProperties.GetFirst();
+		objProperty = parent->mProperties.GetFirst();
 
 		switch (child->getType())
 		{
