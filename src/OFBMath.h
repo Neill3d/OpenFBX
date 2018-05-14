@@ -30,6 +30,7 @@ namespace ofbx
 
 	const OFBVector3 Vector_Zero();
 	const OFBVector3 Vector_One();
+	const OFBVector3 Vector_Make(const double x, const double y, const double z);
 
 	bool VectorIsZero(const OFBVector3 &v);
 
@@ -41,10 +42,12 @@ namespace ofbx
 
 	void VectorTransform(OFBVector3 &res, const OFBVector3 &in1, const OFBMatrix &in2);
 	void VectorTransform33(OFBVector3 &res, const OFBVector3 &in1, const OFBMatrix &in2);
+	void VectorRotate(OFBVector3 &res, const OFBVector3 &in, const OFBVector4 &q);
 
 	void setTranslation(const OFBVector3& t, OFBMatrix* mtx);
 	OFBVector3 operator-(const OFBVector3& v);
-	OFBVector3 operator*(const OFBVector3& v, float f);
+	OFBVector3 operator*(double f, const OFBVector3& v);
+	OFBVector3 operator*(const OFBVector3& v, double f);
 	OFBVector3 operator-(const OFBVector3& a, const OFBVector3& b);
 	OFBVector3 operator+(const OFBVector3& a, const OFBVector3& b);
 

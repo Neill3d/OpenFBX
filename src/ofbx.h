@@ -14,6 +14,7 @@
 #include "OFBTime.h"
 #include "OFBMath.h"
 #include "OFBProperty.h"
+#include "OFBRenderer.h"
 
 namespace ofbx
 {
@@ -70,6 +71,21 @@ namespace ofbx
 		eFilmBackIMAX                        //!< IMAX.
 	};
 
+	//! Light types
+	enum OFBLightType    {
+		eLightTypePoint = 0,  //!< Point light.
+		eLightTypeInfinite,   //!< Infinite light (plane).
+		eLightTypeSpot,       //!< Spot light.
+		eLightTypeArea            //!< Area light. 
+	};
+
+	//! Light attenuation types
+	enum OFBAttenuationType    {
+		eAttenuationNone = 0,     //!< No attenuation.
+		eAttenuationLinear,       //!< Linear attenuation.
+		eAttenuationQuadratic,    //!< Quadratic attenuation.
+		eAttenuationCubic         //!< Cubic attenuation.
+	};
 
 struct DataView
 {
@@ -389,8 +405,33 @@ struct Material : Object
 
 	Material(const Scene& _scene, const IElement& _element);
 
-	virtual OFBColor getDiffuseColor() const = 0;
-	virtual const Texture* getTexture(Texture::TextureType type) const = 0;
+	PropertyAnimatableColor			Ambient;
+	PropertyAnimatableDouble		AmbientFactor;
+
+	PropertyAnimatableColor			Emissive;
+	PropertyAnimatableDouble		EmissiveFactor;
+
+	PropertyAnimatableColor			Diffuse;
+	PropertyAnimatableDouble		DiffuseFactor;
+
+	PropertyAnimatableColor			TransparentColor;
+	PropertyAnimatableDouble		TransparencyFactor;
+
+	PropertyAnimatableColor			Bump;
+	PropertyAnimatableColor			NormalMap;
+	PropertyAnimatableDouble		BumpFactor;
+
+	PropertyAnimatableColor			Specular;
+	PropertyAnimatableDouble		SpecularFactor;
+	PropertyAnimatableDouble		Shininess;
+
+	PropertyAnimatableColor			Reflection;
+	PropertyAnimatableDouble		ReflectionFactor;
+
+	PropertyAnimatableColor			DisplacementColor;
+	PropertyAnimatableDouble		DisplacementFactor;
+
+	virtual const Texture* GetTexture(Texture::TextureType type) const = 0;
 };
 
 /////////////////////////////////////////////////////////////////////////////////////////
@@ -474,23 +515,41 @@ struct Model : Object
 	//! a constructor
 	Model(const Scene& _scene, const IElement& _element);
 
-	//
-	PropertyBool						Show;
+	PropertyBaseEnum<OFBRotationOrder>		RotationOrder;
+
+	// Limits
+	PropertyBool							RotationActive;
+	PropertyVector3							PreRotation;
+	PropertyVector3							PostRotation;
+
+	PropertyVector3							RotationOffset;
+	PropertyVector3							RotationPivot;
+
+	PropertyVector3							ScalingOffset;
+	PropertyVector3							ScalingPivot;
+
+	// Animatable
+	PropertyAnimatableDouble			Visibility;
+	PropertyBool						VisibilityInheritance;
 	PropertyAnimatableVector3			Translation;
 	PropertyAnimatableVector3			Rotation;
 	PropertyAnimatableVector3			Scaling;
 
-	PropertyBool							RotationActive;
-	PropertyBaseEnum<OFBRotationOrder>		RotationOrder;
-	PropertyVector3							RotationOffset;
-	PropertyVector3							RotationPivot;
-	
-	PropertyVector3							ScalingOffset;
-	PropertyVector3							ScalingPivot;
+	PropertyVector3						GeometricTranslation;
+	PropertyVector3						GeometricRotation;
+	PropertyVector3						GeometricScaling;
 
-	PropertyVector3					PreRotation;
-	PropertyVector3					PostRotation;
 	
+	PropertyBool							QuaternionInterpolation;
+
+	PropertyBool						Show;
+	PropertyBool						Pickable;
+	PropertyBool						Transformable;
+
+	PropertyBool							CastsShadows;		// geometry will produce shadows
+	PropertyBool							ReceiveShadows;		// geometry will receive shadows
+
+	PropertyBool						PrimaryVisibility;	// could cast shadow, but not display it's geometry
 
 	OFBMatrix getGlobalTransform() const;
 	
@@ -525,6 +584,21 @@ struct Model : Object
 	void GetVector(OFBVector3 &pVector, ModelTransformationType pWhat = eModelTranslation, bool pGlobalInfo = true, const OFBTime *pTime = nullptr) const;
 	void GetRotation(OFBVector4 &pQuat, const OFBTime *pTime = nullptr) const;
 
+	/** If the model is visible.
+	*	Note. this query will consider self Visibility property, plus parent node/set Visibility.
+	*   The visibility of a model is affected by 4 parameters:
+	*   1. The model's own visibility
+	*   2. The model's parent's visibility (if any)
+	*   3. The visibility of the set to which model belongs (if any)
+	*   4. VisibilityInheritance of the model
+	*	\param pEvaluateInfo	evaluate info,
+	*	\return true if visible for the given evaluate info.
+	*/
+	bool IsVisible(const OFBTime *pTime = nullptr);
+
+	virtual bool HasCustomDisplay() const { return false; }
+	virtual void CustomModelDisplay(OFBRenderConveyer	*pConveyer) const;
+
 	std::vector<AnimationCurveNode*>		mAnimationNodes;
 
 protected:
@@ -549,7 +623,7 @@ protected:
 };
 
 /////////////////////////////////////////////////////////////////////////////////////////////
-//
+// Mesh
 
 struct Mesh : Model
 {
@@ -557,10 +631,7 @@ struct Mesh : Model
 
 	Mesh(const Scene& _scene, const IElement& _element);
 
-	PropertyVector3			GeometricTranslation;
-	PropertyVector3			GeometricRotation;
-	PropertyVector3			GeometricScaling;
-
+	
 	virtual const Geometry* getGeometry() const = 0;
 	virtual OFBMatrix getGeometricMatrix() const = 0;
 	virtual const Material* getMaterial(int idx) const = 0;
@@ -568,6 +639,9 @@ struct Mesh : Model
 
 	virtual bool IsStatic() const = 0;
 };
+
+////////////////////////////////////////////////////////////////////////////////////////////
+// ModelNull
 
 struct ModelNull : Model
 {
@@ -578,9 +652,12 @@ struct ModelNull : Model
 	// model null display size
 	PropertyDouble			Size;
 	//virtual const double getSize() const = 0;
+
 };
 
+////////////////////////////////////////////////////////////////////////////////////////////
 // core root element, scene root
+
 struct SceneRoot : Model
 {
 	static const Type s_type = Type::ROOT;
@@ -591,6 +668,9 @@ struct SceneRoot : Model
 	//PropertyDouble		Size;
 	//virtual const double getSize() const = 0;
 };
+
+/////////////////////////////////////////////////////////////////////////////////////////////
+// ModelSkeleton
 
 struct ModelSkeleton : Model
 {
@@ -685,11 +765,24 @@ struct Camera : Model
 	virtual Model *GetTarget() const = 0;
 };
 
+///////////////////////////////////////////////////////////////////////////////////////////////////
+// Light
+
 struct Light : Model
 {
 	static const Type s_type = Type::LIGHT;
 
 	Light(const Scene& _scene, const IElement &_element);
+
+	PropertyBaseEnum<OFBLightType>			LightType;
+	PropertyBaseEnum<OFBAttenuationType>	AttenuationType;
+	PropertyAnimatableDouble				Intensity;
+	PropertyAnimatableDouble				InnerAngle;
+	PropertyAnimatableDouble				OuterAngle;
+	PropertyAnimatableColor					DiffuseColor;
+	
+	PropertyBool							CastShadows;
+	PropertyBool							CastLightOnObject;
 };
 
 /////////////////////////////////////////////////////////////////////////////////////////////
@@ -718,11 +811,6 @@ struct ConstraintPosition : Constraint
 
 	ConstraintPosition(const Scene &_scene, const IElement &_element);
 
-
-	// DONE: weight could be animated !!
-	PropertyBool					Active;
-	PropertyAnimatableDouble		Weight;
-
 	// TODO: should be arrays instead of single pointer !!
 	PropertyObject		ConstrainedObject;
 	PropertyObject		SourceObject;
@@ -744,6 +832,9 @@ struct EvaluationInfo
 	bool		IsStop;	// is playing or not
 };
 
+////////////////////////////////////////////////////////////////////////////////////////////////////
+// AnimationStack
+
 struct AnimationStack : Object
 {
 	static const Type s_type = Type::ANIMATION_STACK;
@@ -757,6 +848,8 @@ struct AnimationStack : Object
 	virtual const AnimationLayer* getLayer(int index) const = 0;
 };
 
+//////////////////////////////////////////////////////////////////////////////////////////////////////
+// AnimationLayer
 
 struct AnimationLayer : Object
 {
@@ -783,6 +876,8 @@ struct AnimationLayer : Object
 	virtual const AnimationLayer *getSubLayer(int index) const = 0;
 };
 
+//////////////////////////////////////////////////////////////////////////////////////////////////
+// AnimationCurve
 
 struct AnimationCurve : Object
 {
@@ -798,6 +893,8 @@ struct AnimationCurve : Object
 	virtual double Evaluate(const OFBTime &time) const = 0;
 };
 
+/////////////////////////////////////////////////////////////////////////////////////////////////////
+// AnimationCurveNode
 
 struct AnimationCurveNode : Object
 {
@@ -832,6 +929,8 @@ struct TakeInfo
 	double reference_time_to;
 };
 
+//////////////////////////////////////////////////////////////////////////////////////////////////
+// IScene
 
 struct IScene
 {

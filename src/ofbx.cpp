@@ -23,6 +23,7 @@
 
 static double gsOrthoCameraScale = 178.0;
 
+#define MATH_PI			3.1415926535897932384626433832795028
 #define MATH_PI_DIV_180  3.1415926535897932384626433832795028 / 180.0
 #define MATH_180_DIV_PI  180.0 / 3.1415926535897932384626433832795028
 #define HFOV2VFOV(h, ar) (2.0 * atan((ar) * tan( (h * MATH_PI_DIV_180) * 0.5)) * MATH_180_DIV_PI) //ar : aspectY / aspectX
@@ -384,39 +385,78 @@ Model::Model(const Scene& _scene, const IElement& _element)
 	mNext = nullptr;
 	mPrev = nullptr;
 
-	Show.Init(this, "Show");
-	Translation.Init(this, "Lcl Translation");
-	Rotation.Init(this, "Lcl Rotation");
-	Scaling.Init(this, "Lcl Scaling");
+	//
+	RotationOrder.Init(this, "RotationOrder");
 
 	RotationActive.Init(this, "RotationActive");
-	RotationOrder.Init(this, "RotationOrder");
+	PreRotation.Init(this, "PreRotation");
+	PostRotation.Init(this, "PostRotation");
+
 	RotationOffset.Init(this, "RotationOffset");
 	RotationPivot.Init(this, "RotationPivot");
 
 	ScalingOffset.Init(this, "ScalingOffset");
 	ScalingPivot.Init(this, "ScalingPivot");
 
-	PreRotation.Init(this, "PreRotation");
-	PostRotation.Init(this, "PostRotation");
+	Visibility.Init(this, "Visibility");
+	VisibilityInheritance.Init(this, "Visibility Inheritance");
+
+	Translation.Init(this, "Lcl Translation");
+	Rotation.Init(this, "Lcl Rotation");
+	Scaling.Init(this, "Lcl Scaling");
+
+	GeometricTranslation.Init(this, "GeometricTranslation");
+	GeometricRotation.Init(this, "GeometricRotation");
+	GeometricScaling.Init(this, "GeometricScaling");
+
+	QuaternionInterpolation.Init(this, "QuaternionInterpolation");
+
+	Show.Init(this, "Show");
+	Pickable.Init(this, "Pickable");
+	Transformable.Init(this, "Transformable");
+
+	CastsShadows.Init(this, "Casts Shadows");
+	ReceiveShadows.Init(this, "Receive Shadows");
+
+	PrimaryVisibility.Init(this, "Primary Visibility");
 
 	// default values
-	Show = true;
-	Translation = Vector_Zero();
-	Rotation = Vector_Zero();
-	Scaling = Vector_One();
+
+	RotationOrder.SetPropertyValue(OFBRotationOrder::eEULER_XYZ);
 
 	RotationActive = false;
-	RotationOrder.SetPropertyValue(OFBRotationOrder::eEULER_XYZ);
+
 	RotationOffset = Vector_Zero();
 	RotationPivot = Vector_Zero();
-	
+
 	ScalingOffset = Vector_Zero();
 	ScalingPivot = Vector_Zero();
 
 	PreRotation = Vector_Zero();
 	PostRotation = Vector_Zero();
-	
+
+	Visibility = true;
+	VisibilityInheritance = true;
+
+	Translation = Vector_Zero();
+	Rotation = Vector_Zero();
+	Scaling = Vector_One();
+
+	GeometricTranslation = Vector_Zero();
+	GeometricRotation = Vector_Zero();
+	GeometricScaling = Vector_One();
+
+	QuaternionInterpolation = false;
+
+	Show = true;
+	Pickable = true;
+	Transformable = true;
+
+	CastsShadows = true;
+	ReceiveShadows = true;
+
+	PrimaryVisibility = true;
+
 	//
 	mCacheTime = OFBTime::MinusInfinity;
 }
@@ -427,7 +467,29 @@ Camera::Camera(const Scene& _scene, const IElement& _element)
 
 Light::Light(const Scene& _scene, const IElement& _element)
 : Model(_scene, _element)
-{}
+{
+	LightType.Init(this, "LightType");
+	AttenuationType.Init(this, "AttenuationType");
+
+	Intensity.Init(this, "Intensity");
+	InnerAngle.Init(this, "InnerAngle");
+	OuterAngle.Init(this, "OuterAngle");
+	DiffuseColor.Init(this, "DiffuseColor");
+
+	CastShadows.Init(this, "CastShadows");
+	CastLightOnObject.Init(this, "CastLightOnObject");
+
+	// default values
+	LightType.SetPropertyValue(eLightTypePoint);
+	AttenuationType.SetPropertyValue(eAttenuationLinear);
+
+	Intensity = 100.0;
+	InnerAngle = 45.0;
+	OuterAngle = 50.0;
+	DiffuseColor = { 1.0, 1.0, 1.0 };
+	CastShadows = true;
+	CastLightOnObject = true;
+}
 
 ModelNull::ModelNull(const Scene& _scene, const IElement& _element)
 : Model(_scene, _element)
@@ -976,14 +1038,6 @@ struct Scene;
 Mesh::Mesh(const Scene& _scene, const IElement& _element)
 	: Model(_scene, _element)
 {
-	GeometricTranslation.Init(this, "GeometricTranslation");
-	GeometricRotation.Init(this, "GeometricRotation");
-	GeometricScaling.Init(this, "GeometricScaling");
-
-	//
-	GeometricTranslation = Vector_Zero();
-	GeometricRotation = Vector_Zero();
-	GeometricScaling = Vector_One();
 }
 
 
@@ -1044,10 +1098,64 @@ struct MeshImpl : Mesh
 	std::vector<const Material*> materials;
 };
 
+////////////////////////////////////////////////////////////////////////////
+// Material
 
 Material::Material(const Scene& _scene, const IElement& _element)
 	: Object(_scene, _element)
 {
+	Ambient.Init(this, "AmbientColor");
+	AmbientFactor.Init(this, "AmbientFactor");
+
+	Emissive.Init(this, "EmissiveColor");
+	EmissiveFactor.Init(this, "EmissiveFactor");
+
+	Diffuse.Init(this, "DiffuseColor");
+	DiffuseFactor.Init(this, "DiffuseFactor");
+
+	TransparentColor.Init(this, "TransparentColor");
+	TransparencyFactor.Init(this, "TransparencyFactor");
+
+	Bump.Init(this, "Bump");
+	NormalMap.Init(this, "NormalMap");
+	BumpFactor.Init(this, "BumpFactor");
+	
+	Specular.Init(this, "SpecularColor");
+	SpecularFactor.Init(this, "SpecularFactor");
+	Shininess.Init(this, "ShininessExponent");
+
+	Reflection.Init(this, "ReflectionColor");
+	ReflectionFactor.Init(this, "ReflectionFactor");
+
+	DisplacementColor.Init(this, "DisplacementColor");
+	DisplacementFactor.Init(this, "DisplacementFactor");
+
+	// Default values
+	Ambient = { 0.2, 0.2, 0.2 };
+	AmbientFactor = 1.0;
+
+	Emissive = { 0.0, 0.0, 0.0 };
+	EmissiveFactor = 1.0;
+
+	Diffuse = { 0.8, 0.8, 0.8 };
+	DiffuseFactor = 1.0;
+
+	TransparentColor = { 0.0, 0.0, 0.0 };
+	TransparencyFactor = 0.0;
+
+	Bump = { 0.0, 0.0, 0.0 };
+	NormalMap = { 0.0, 0.0, 0.0 };
+	BumpFactor = 1.0;
+
+	Specular = { 0.2, 0.2, 0.2 };
+	SpecularFactor = 1.0;
+	Shininess = 20.0;
+
+	Reflection = { 0.0, 0.0, 0.0 };
+	ReflectionFactor = 1.0;
+
+	DisplacementColor = { 0.0, 0.0, 0.0 };
+	DisplacementFactor = 1.0;
 }
 
 
@@ -1062,12 +1170,12 @@ struct MaterialImpl : Material
 	Type getType() const override { return Type::MATERIAL; }
 
 
-	const Texture* getTexture(Texture::TextureType type) const override { return textures[type]; }
-	OFBColor getDiffuseColor() const override { return diffuse_color; }
-
+	const Texture* GetTexture(Texture::TextureType type) const override { return textures[type]; }
 	const Texture* textures[Texture::TextureType::COUNT];
-	OFBColor diffuse_color;
 };
+
+/////////////////////////////////////////////////////////////////////////
+// Shader
 
 Shader::Shader(const Scene& _scene, const IElement& _element)
 :Object(_scene, _element)
@@ -1101,8 +1209,51 @@ struct LimbNodeImpl : ModelSkeleton
 	{
 		return Object::Retrieve();
 	}
+
+	bool HasCustomDisplay() const override { return true; }
+	void CustomModelDisplay(OFBRenderConveyer	*pConveyer) const override
+	{
+		// three circles for each axis
+
+		const float radius = 1.0f;
+		const float segs = 12.0f;
+
+		float t = 0.0f;
+		float maxt = 2.0f * (float)MATH_PI;
+		float step = maxt / segs;
+		float cos1, sin1, cos2, sin2;
+
+		while (t < maxt)
+		{
+			cos1 = radius*cos(t);
+			sin1 = radius*sin(t);
+			t += step;
+			cos2 = radius*cos(t);
+			sin2 = radius*sin(t);
+
+			pConveyer->PushLine({ cos1, sin1, 0.0 }, { cos2, sin2, 0.0 });
+			pConveyer->PushLine({ cos1, 0.0, sin1 }, { cos2, 0.0, sin2 });
+			pConveyer->PushLine({ 0.0, cos1, sin1 }, { 0.0, cos2, sin2 });
+		}
+
+		// TODO: draw links
+
+		Model *pChild = Children();
+		while (nullptr != pChild)
+		{
+			OFBVector3 v;
+			//pChild->GetVector(v, eModelTranslation, false, nullptr);
+			v = pChild->Translation;
+
+			pConveyer->PushLine({ 0.0, 0.0, 0.0 }, 0.1 * v);
+
+			pChild = pChild->GetNext();
+		}
+	}
 };
 
+////////////////////////////////////////////////////////////////////////
+// NullImpl
 
 struct NullImpl : ModelNull
 {
@@ -1117,15 +1268,18 @@ struct NullImpl : ModelNull
 	}
 	Type getType() const override { return Type::NULL_NODE; }
 
-
-	//const double getSize() const override { return mSize; }
-
 	bool Retrieve() override
 	{
 		return Object::Retrieve();
 	}
 
-	//double mSize;
+	bool HasCustomDisplay() const override { return true; }
+	void CustomModelDisplay(OFBRenderConveyer	*pConveyer) const override
+	{
+		pConveyer->PushLine({ -1.0, 0.0, 0.0 }, { 1.0, 0.0, 0.0 });
+		pConveyer->PushLine({ 0.0, -1.0, 0.0 }, { 0.0, 1.0, 0.0 });
+		pConveyer->PushLine({ 0.0, 0.0, -1.0 }, { 0.0, 0.0, 1.0 });
+	}
 };
 
 //////////////////////////////////////////////////////////////////////////////////////////
@@ -1601,6 +1755,122 @@ struct CameraImpl : Camera
 		return Object::Retrieve();
 	}
 
+	bool HasCustomDisplay() const override { return true; }
+	void CustomModelDisplay(OFBRenderConveyer	*pConveyer) const override
+	{
+		auto fn_constructbody = [](OFBRenderConveyer *conveyer, double size, OFBVector3 offset){
+			// front
+			conveyer->PushLine(offset + size * Vector_Make(0.0, 0.2, -0.1), offset + size * Vector_Make(0.0, 0.2, 0.1));
+			conveyer->PushLine(offset + size * Vector_Make(0.0, -0.2, -0.1), offset + size * Vector_Make(0.0, -0.2, 0.1));
+			conveyer->PushLine(offset + size * Vector_Make(0.0, 0.2, -0.1), offset + size * Vector_Make(0.0, -0.2, -0.1));
+			conveyer->PushLine(offset + size * Vector_Make(0.0, 0.2, 0.1), offset + size * Vector_Make(0.0, -0.2, 0.1));
+
+			// front to top connection
+			conveyer->PushLine(offset + size * Vector_Make(0.0, 0.2, 0.1), offset + size * Vector_Make(-0.1, 0.3, 0.1));
+			conveyer->PushLine(offset + size * Vector_Make(0.0, 0.2, -0.1), offset + size * Vector_Make(-0.1, 0.3, -0.1));
+
+			// top
+			conveyer->PushLine(offset + size * Vector_Make(-0.1, 0.3, 0.1)*size, offset + size * Vector_Make(-0.1, 0.3, -0.1));
+
+			conveyer->PushLine(offset + size * Vector_Make(-0.1, 0.3, -0.1)*size, offset + size * Vector_Make(-1.0, 0.3, -0.1));
+			conveyer->PushLine(offset + size * Vector_Make(-0.1, 0.3, 0.1), offset + size * Vector_Make(-1.0, 0.3, 0.1));
+
+			conveyer->PushLine(offset + size * Vector_Make(-1.0, 0.3, -0.1), offset + size * Vector_Make(-1.0, 0.3, 0.1));
+			 
+			// back
+
+			conveyer->PushLine(offset + size * Vector_Make(-1.0, 0.3, 0.1), offset + size * Vector_Make(-1.0, -0.1, 0.1));
+			conveyer->PushLine(offset + size * Vector_Make(-1.0, 0.3, -0.1), offset + size * Vector_Make(-1.0, -0.1, -0.1));
+
+			conveyer->PushLine(offset + size * Vector_Make(-1.0, -0.1, 0.1), offset + size * Vector_Make(-1.0, -0.1, -0.1));
+
+			// bottom
+
+			conveyer->PushLine(offset + size * Vector_Make(0.0, -0.2, 0.1), offset + size * Vector_Make(-0.9, -0.2, 0.1));
+			conveyer->PushLine(offset + size * Vector_Make(0.0, -0.2, -0.1), offset + size * Vector_Make(-0.9, -0.2, -0.1));
+
+			conveyer->PushLine(offset + size * Vector_Make(-0.9, -0.2, 0.1), offset + size * Vector_Make(-0.9, -0.2, -0.1));
+
+			// bottom to back connection
+
+			conveyer->PushLine(offset + size * Vector_Make(-0.9, -0.2, 0.1), offset + size * Vector_Make(-1.0, -0.1, 0.1));
+			conveyer->PushLine(offset + size * Vector_Make(-0.9, -0.2, -0.1), offset + size * Vector_Make(-1.0, -0.1, -0.1));
+		};
+
+		//
+		fn_constructbody(pConveyer, 1.0, { 0.0, 0.0, 0.0 });
+		fn_constructbody(pConveyer, 0.5, { -0.4, 0.0, 0.2 });
+
+
+		auto fn_constructcircletrim = [](OFBRenderConveyer *conveyer, double size, OFBVector3 offset, int trim) {
+			//
+			const int segs = 16;
+			double t = 0.0;
+			double maxt = 2.0 * MATH_PI;
+			double step = maxt / segs;
+
+			const double radius = 0.25;
+
+			t += step * trim;
+
+			double x = radius * cos(t);
+			double y = radius * sin(t);
+
+			for (int i = 0; i < 10; ++i)
+			{
+				t += step;
+
+				double x2 = radius * cos(t);
+				double y2 = radius * sin(t);
+
+				conveyer->PushLine(offset + size * Vector_Make(x, y, 0.0), offset + size * Vector_Make(x2, y2, 0.0));
+				conveyer->PushLine(offset + size * Vector_Make(x, y, 0.2), offset + size * Vector_Make(x2, y2, 0.2));
+
+				conveyer->PushLine(offset + size * Vector_Make(x2, y2, 0.0), offset + size * Vector_Make(x2, y2, 0.2));
+
+				x = x2;
+				y = y2;
+			}
+		};
+
+		fn_constructcircletrim(pConveyer, 1.0, { -0.5, 0.55, -0.1 }, 12);
+		fn_constructcircletrim(pConveyer, 1.0, { -0.75, 0.55, -0.1 }, 2);
+
+		//
+
+		auto fn_constructcircle = [](OFBRenderConveyer *conveyer, double size, OFBVector3 offset) {
+			const int segs = 16;
+			double t = 0.0;
+			double maxt = 2.0 * MATH_PI;
+			double step = maxt / segs;
+
+			const double radius = 0.25;
+
+
+			double x = radius * cos(t);
+			double y = radius * sin(t);
+
+			for (int i = 0; i < segs; ++i)
+			{
+				t += step;
+
+				double x2 = radius * cos(t);
+				double y2 = radius * sin(t);
+
+				conveyer->PushLine(offset + size * Vector_Make(0.0, x, y), offset + size * Vector_Make(0.0, x2, y2));
+				conveyer->PushLine(offset + size * Vector_Make(0.2, x, y), offset + size * Vector_Make(0.2, x2, y2));
+
+				conveyer->PushLine(offset + size * Vector_Make(0.0, x2, y2), offset + size * Vector_Make(0.2, x2, y2));
+
+				x = x2;
+				y = y2;
+			}
+		};
+
+		// TODO: attach to camera FOV and aspect
+		fn_constructcircle(pConveyer, 0.3, { 0.0, 0.0, 0.0 });
+	}
+
 protected:
 
 	OFBMatrix		mModelView;
@@ -1610,6 +1880,9 @@ protected:
 	bool			mManualSet;
 };
 
+///////////////////////////////////////////////////////////////////////////////////////////////////////////
+// LightImpl
+
 struct LightImpl : Light
 {
 	LightImpl(const Scene& _scene, const IElement &_element)
@@ -1617,6 +1890,99 @@ struct LightImpl : Light
 	{}
 
 	Type getType() const override { return Type::LIGHT;  }
+
+	bool HasCustomDisplay() const override { return true; }
+	void CustomModelDisplay(OFBRenderConveyer	*pConveyer) const override
+	{
+
+		auto fn_constructcircle = [](OFBRenderConveyer *conveyer, double size, OFBVector3 offset) {
+			const int segs = 16;
+			double t = 0.0;
+			double maxt = 2.0 * MATH_PI;
+			double step = maxt / segs;
+
+			const double radius = 0.25;
+
+
+			double x = radius * cos(t);
+			double y = radius * sin(t);
+
+			for (int i = 0; i < segs; ++i)
+			{
+				t += step;
+
+				double x2 = radius * cos(t);
+				double y2 = radius * sin(t);
+
+				conveyer->PushLine(offset + size * Vector_Make(x, 0.0, y), offset + size * Vector_Make(x2, 0.0, y2));
+				
+				x = x2;
+				y = y2;
+			}
+		};
+
+		auto fn_constructcone = [](OFBRenderConveyer *conveyer, double size, double size2, double height, OFBVector3 offset) {
+			const int segs = 16;
+			double t = 0.0;
+			double maxt = 2.0 * MATH_PI;
+			double step = maxt / segs;
+
+			const double radius = 0.25;
+
+
+			double x = radius * cos(t);
+			double y = radius * sin(t);
+
+			for (int i = 0; i < segs; ++i)
+			{
+				t += step;
+
+				double x2 = radius * cos(t);
+				double y2 = radius * sin(t);
+
+				conveyer->PushLine(offset + Vector_Make(size*x, 0.0, size*y), offset + Vector_Make(size*x2, 0.0, size*y2));
+				conveyer->PushLine(offset + Vector_Make(size2*x, height, size2*y), offset + Vector_Make(size2*x2, height, size2*y2));
+
+				conveyer->PushLine(offset + Vector_Make(size*x, 0.0, size*y), offset + Vector_Make(size2*x, height, size2*y));
+
+				x = x2;
+				y = y2;
+			}
+		};
+
+		if (eLightTypePoint == LightType)
+		{
+			fn_constructcircle(pConveyer, 1.0, { 0.0, 0.0, 0.0 });
+
+			fn_constructcircle(pConveyer, 0.9, { 0.0, 0.15, 0.0 });
+			fn_constructcircle(pConveyer, 0.9, { 0.0, -0.15, 0.0 });
+
+			fn_constructcircle(pConveyer, 0.7, { 0.0, 0.3, 0.0 });
+			fn_constructcircle(pConveyer, 0.7, { 0.0, -0.3, 0.0 });
+		}
+		else if (eLightTypeInfinite == LightType)
+		{
+			fn_constructcircle(pConveyer, 0.5, { 0.0, 0.0, 0.0 });
+
+			fn_constructcircle(pConveyer, 0.4, { 0.0, 0.15, 0.0 });
+			fn_constructcircle(pConveyer, 0.4, { 0.0, -0.15, 0.0 });
+
+			fn_constructcircle(pConveyer, 0.25, { 0.0, 0.3, 0.0 });
+			fn_constructcircle(pConveyer, 0.25, { 0.0, -0.3, 0.0 });
+
+			pConveyer->PushLine({ 0.0, -0.5, 0.0 }, { 0.0, 0.5, 0.0 });
+
+			fn_constructcone(pConveyer, 0.01, 0.25, 0.25, { 0.0, -0.75, 0.0 });
+		}
+		else
+		{
+			pConveyer->PushLine({ 0.0, -0.75, 0.0 }, { 0.0, 0.25, 0.0 });
+
+			fn_constructcone(pConveyer, 0.01, 0.5, -0.5, { 0.0, 0.0, 0.0 });
+			fn_constructcone(pConveyer, 0.01, 0.25, 0.25, { 0.0, -1.0, 0.0 });
+		}
+		
+	}
 };
 
 NodeAttribute::NodeAttribute(const Scene& _scene, const IElement& _element)
@@ -2539,22 +2905,6 @@ static OptionalError<Object*> parseMesh(const Scene& scene, const Element& eleme
 static OptionalError<Object*> parseMaterial(const Scene& scene, const Element& element)
 {
 	MaterialImpl* material = new MaterialImpl(scene, element);
-	const Element* prop = findChild(element, "Properties70");
-	material->diffuse_color = { 1, 1, 1 };
-	if (prop) prop = prop->child;
-	while (prop)
-	{
-		if (prop->id == "P" && prop->first_property)
-		{
-			if (prop->first_property->value == "DiffuseColor")
-			{
-				material->diffuse_color.r = (float)prop->getProperty(4)->getValue().toDouble();
-				material->diffuse_color.g = (float)prop->getProperty(5)->getValue().toDouble();
-				material->diffuse_color.b = (float)prop->getProperty(6)->getValue().toDouble();
-			}
-		}
-		prop = prop->sibling;
-	}
 	return material;
 }
 
@@ -4312,6 +4662,29 @@ void Model::GetRotation(OFBVector4 &pQuat, const OFBTime *pTime) const
 	OFBMatrix temp;
 	GetMatrix(temp, eModelTransformation, true, pTime);
 	pQuat = MatrixGetRotation(temp);
+}
+
+bool Model::IsVisible(const OFBTime *pTime)
+{
+	bool vis = true;
+	Visibility.GetData(&vis, sizeof(bool), pTime);
+
+	if (false == Show)
+		vis = false;
+	else
+	if (true == VisibilityInheritance)
+	{
+		Model *pParent = Parent();
+		if (nullptr != pParent)
+			vis = pParent->IsVisible(pTime);
+	}
+
+	return vis;
+}
+
+void Model::CustomModelDisplay(OFBRenderConveyer	*pConveyer) const
+{
+
 }
 
 /////////////////////////////////////////////////////////////////////

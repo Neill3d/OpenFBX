@@ -23,6 +23,11 @@ namespace ofbx
 		return{ 1.0, 1.0, 1.0 };
 	}
 
+	const OFBVector3 Vector_Make(const double x, const double y, const double z)
+	{
+		return{ x, y, z };
+	}
+
 	void setTranslation(const OFBVector3& t, OFBMatrix* mtx)
 	{
 		mtx->m[12] = t.x;
@@ -168,8 +173,11 @@ namespace ofbx
 		return i64(value * 46186158000L);
 	}
 
-
-	OFBVector3 operator*(const OFBVector3& v, float f)
+	OFBVector3 operator*(double f, const OFBVector3& v)
+	{
+		return{ v.x * f, v.y * f, v.z * f };
+	}
+	OFBVector3 operator*(const OFBVector3& v, double f)
 	{
 		return{ v.x * f, v.y * f, v.z * f };
 	}
@@ -238,6 +246,30 @@ namespace ofbx
 		res.x = DotProduct(in1, { in2.m[0], in2.m[4], in2.m[8] });
 		res.y = DotProduct(in1, { in2.m[1], in2.m[5], in2.m[9] });
 		res.z = DotProduct(in1, { in2.m[2], in2.m[6], in2.m[10] });
+	}
+
+	// Quaternion multiplication
+	// http://mathworld.wolfram.com/Quaternion.html
+	OFBVector4 qmul(const OFBVector4 &p, const OFBVector4 &q) 
+	{
+		return{
+			p.w * q.x + p.x * q.w + p.y * q.z - p.z * q.y,
+			p.w * q.y + p.y * q.w + p.z * q.x - p.x * q.z,
+			p.w * q.z + p.z * q.w + p.x * q.y - p.y * q.x,
+			p.w * q.w - p.x * q.x - p.y * q.y - p.z * q.z
+		};
+	}
+
+	// Vector rotation with a quaternion
+	// http://mathworld.wolfram.com/Quaternion.html
+	void VectorRotate(OFBVector3 &res, const OFBVector3 &v, const OFBVector4 &r) 
+	{
+		OFBVector4 r_c = { r.x * -1.0, r.y * -1.0, r.z * -1.0, r.w * 1.0 };
+		OFBVector4 p = { v.x, v.y, v.z, 0.0 };
+		OFBVector4 q = qmul(r, qmul(p, r_c));
+		res.x = q.x;
+		res.y = q.y;
+		res.z = q.z;
 	}
 
 	OFBVector3 MatrixGetColumn(const OFBMatrix &mat, const int index)
