@@ -1242,10 +1242,10 @@ struct LimbNodeImpl : ModelSkeleton
 		while (nullptr != pChild)
 		{
 			OFBVector3 v;
-			//pChild->GetVector(v, eModelTranslation, false, nullptr);
-			v = pChild->Translation;
+			pChild->GetVector(v, eModelTranslation, false, nullptr);
+			//v = pChild->Translation;
 
-			pConveyer->PushLine({ 0.0, 0.0, 0.0 }, 0.1 * v);
+			pConveyer->PushLine({ 0.0, 0.0, 0.0 }, v);
 
 			pChild = pChild->GetNext();
 		}
@@ -4661,7 +4661,11 @@ void Model::GetRotation(OFBVector4 &pQuat, const OFBTime *pTime) const
 {
 	OFBMatrix temp;
 	GetMatrix(temp, eModelTransformation, true, pTime);
+
 	pQuat = MatrixGetRotation(temp);
+	pQuat.x *= -1.0;
+	pQuat.y *= -1.0;
+	pQuat.z *= -1.0;
 }
 
 bool Model::IsVisible(const OFBTime *pTime)

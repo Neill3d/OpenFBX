@@ -112,6 +112,7 @@ namespace ofbx
 				size = 4;
 				break;
 			case ePT_Vector3D:
+			case ePT_ColorRGB:
 				size = 24;
 				break;
 			}
@@ -123,12 +124,14 @@ namespace ofbx
 
 			switch (GetPropertyType())
 			{
+			case ePT_ColorRGB:
 			case ePT_Vector3D:
 				count = 3;
 				break;
 			case ePT_Vector2D:
 				count = 2;
 				break;
+			case ePT_ColorRGBA:
 			case ePT_Vector4D:
 				count = 4;
 				break;
@@ -373,7 +376,7 @@ namespace ofbx
 
 		// computed last cached value
 		tType		mCachedValue;
-		OFBTime		mCachedTime;
+		OFBTime		mCachedTime = OFBTime::MinusInfinity;
 
 		virtual void *GetValuePtr() const
 		{

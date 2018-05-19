@@ -287,7 +287,7 @@ namespace ofbx
 	{
 		return (value >= 0.0) ? 1.0 : -1.0;
 	}
-
+	/*
 	OFBVector4 MatrixGetRotation(const OFBMatrix &m)
 	{
 		OFBVector3 s = MatrixGetScale(m);
@@ -320,6 +320,41 @@ namespace ofbx
 		q.z *= qMagnitude;
 
 		return q;
+	}
+	*/
+	OFBVector4 MatrixGetRotation(const OFBMatrix &mat)
+	{
+		OFBVector4 res;
+
+		double trace = mat(0, 0) + mat(1, 1) + mat(2, 2);
+		if (trace > 0.0)
+		{
+			double scale = sqrtf(trace + 1.0);
+			res.w = 0.5 * scale;
+			scale = 0.5 / scale;
+			res.x = scale * (mat(2, 1) - mat(1, 2));
+			res.y = scale * (mat(0, 2) - mat(2, 0));
+			res.z = scale * (mat(1, 0) - mat(0, 1));
+		}
+		else
+		{
+			static int next[] = { 1, 2, 0 };
+			int i = 0;
+			if (mat(1, 1) > mat(0, 0))
+				i = 1;
+			if (mat(2, 2) > mat(i, i))
+				i = 2;
+			int j = next[i];
+			int k = next[j];
+			double scale = sqrtf(mat(i, i) - mat(j, j) - mat(k, k) + 1);
+			double* q[] = { &res.x, &res.y, &res.z };
+			*q[i] = 0.5 * scale;
+			scale = 0.5 / scale;
+			res.w = scale * (mat(k, j) - mat(j, k));
+			*q[j] = scale * (mat(j, i) + mat(i, j));
+			*q[k] = scale * (mat(k, i) + mat(i, k));
+		}
+		return res;
 	}
 
 	void LookAt(OFBMatrix &Matrix, const OFBVector3& Eye, const OFBVector3& Center, const OFBVector3& Up)
