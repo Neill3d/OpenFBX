@@ -1,4 +1,4 @@
-
+[![Build status](https://ci.appveyor.com/api/projects/status/btsbfcl4khbbn89x/branch/master?svg=true)](https://ci.appveyor.com/project/Neill3d/openfbx/branch/master)
 [![License](http://img.shields.io/:license-mit-blue.svg)](http://doge.mit-license.org)
 
 # OpenFBX and FBX Viewer
