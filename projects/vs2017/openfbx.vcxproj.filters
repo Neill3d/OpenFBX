@@ -15,78 +15,78 @@
     <None Include="..\..\genie.lua" />
   </ItemGroup>
   <ItemGroup>
-    <ClInclude Include="..\..\..\demo\imgui\imconfig.h">
-      <Filter>demo\imgui</Filter>
-    </ClInclude>
-    <ClInclude Include="..\..\..\demo\imgui\imgui.h">
-      <Filter>demo\imgui</Filter>
-    </ClInclude>
-    <ClInclude Include="..\..\..\demo\imgui\imgui_dock.h">
-      <Filter>demo\imgui</Filter>
-    </ClInclude>
-    <ClInclude Include="..\..\..\demo\imgui\imgui_internal.h">
-      <Filter>demo\imgui</Filter>
-    </ClInclude>
-    <ClInclude Include="..\..\..\demo\imgui\imgui_user.h">
-      <Filter>demo\imgui</Filter>
-    </ClInclude>
-    <ClInclude Include="..\..\..\demo\imgui\stb_rect_pack.h">
-      <Filter>demo\imgui</Filter>
-    </ClInclude>
-    <ClInclude Include="..\..\..\demo\imgui\stb_textedit.h">
-      <Filter>demo\imgui</Filter>
-    </ClInclude>
-    <ClInclude Include="..\..\..\demo\imgui\stb_truetype.h">
-      <Filter>demo\imgui</Filter>
-    </ClInclude>
-    <ClInclude Include="..\..\..\src\miniz.h">
+    <ClInclude Include="..\..\src\miniz.h">
       <Filter>src</Filter>
     </ClInclude>
-    <ClInclude Include="..\..\..\src\OFBMath.h">
+    <ClInclude Include="..\..\src\OFBMath.h">
       <Filter>src</Filter>
     </ClInclude>
-    <ClInclude Include="..\..\..\src\OFBProperty.h">
+    <ClInclude Include="..\..\src\OFBProperty.h">
       <Filter>src</Filter>
     </ClInclude>
-    <ClInclude Include="..\..\..\src\OFBRenderer.h">
+    <ClInclude Include="..\..\src\OFBRenderer.h">
       <Filter>src</Filter>
     </ClInclude>
-    <ClInclude Include="..\..\..\src\OFBTime.h">
+    <ClInclude Include="..\..\src\OFBTime.h">
       <Filter>src</Filter>
     </ClInclude>
-    <ClInclude Include="..\..\..\src\OFBTypes.h">
+    <ClInclude Include="..\..\src\OFBTypes.h">
       <Filter>src</Filter>
     </ClInclude>
-    <ClInclude Include="..\..\..\src\ofbx.h">
+    <ClInclude Include="..\..\src\ofbx.h">
       <Filter>src</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\demo\imgui\imconfig.h">
+      <Filter>demo\imgui</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\demo\imgui\imgui.h">
+      <Filter>demo\imgui</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\demo\imgui\imgui_dock.h">
+      <Filter>demo\imgui</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\demo\imgui\imgui_internal.h">
+      <Filter>demo\imgui</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\demo\imgui\imgui_user.h">
+      <Filter>demo\imgui</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\demo\imgui\stb_rect_pack.h">
+      <Filter>demo\imgui</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\demo\imgui\stb_textedit.h">
+      <Filter>demo\imgui</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\demo\imgui\stb_truetype.h">
+      <Filter>demo\imgui</Filter>
     </ClInclude>
   </ItemGroup>
   <ItemGroup>
-    <ClCompile Include="..\..\..\src\miniz.c">
+    <ClCompile Include="..\..\src\OFBTime.cpp">
       <Filter>src</Filter>
     </ClCompile>
-    <ClCompile Include="..\..\..\src\OFBMath.cpp">
+    <ClCompile Include="..\..\src\miniz.c">
       <Filter>src</Filter>
     </ClCompile>
-    <ClCompile Include="..\..\..\src\OFBProperty.cpp">
+    <ClCompile Include="..\..\src\OFBMath.cpp">
       <Filter>src</Filter>
     </ClCompile>
-    <ClCompile Include="..\..\..\src\OFBTime.cpp">
+    <ClCompile Include="..\..\src\OFBProperty.cpp">
       <Filter>src</Filter>
     </ClCompile>
-    <ClCompile Include="..\..\..\src\ofbx.cpp">
+    <ClCompile Include="..\..\src\ofbx.cpp">
       <Filter>src</Filter>
     </ClCompile>
-    <ClCompile Include="..\..\..\demo\main.cpp">
+    <ClCompile Include="..\..\demo\main.cpp">
       <Filter>demo</Filter>
     </ClCompile>
-    <ClCompile Include="..\..\..\demo\imgui\imgui.cpp">
+    <ClCompile Include="..\..\demo\imgui\imgui.cpp">
       <Filter>demo\imgui</Filter>
     </ClCompile>
-    <ClCompile Include="..\..\..\demo\imgui\imgui_demo.cpp">
+    <ClCompile Include="..\..\demo\imgui\imgui_demo.cpp">
       <Filter>demo\imgui</Filter>
     </ClCompile>
-    <ClCompile Include="..\..\..\demo\imgui\imgui_draw.cpp">
+    <ClCompile Include="..\..\demo\imgui\imgui_draw.cpp">
       <Filter>demo\imgui</Filter>
     </ClCompile>
   </ItemGroup>

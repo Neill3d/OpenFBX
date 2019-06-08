@@ -74,7 +74,7 @@
     <ClCompile>
       <AdditionalOptions>  %(AdditionalOptions)</AdditionalOptions>
       <Optimization>Disabled</Optimization>
-      <AdditionalIncludeDirectories>..\..\..\src;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>..\..\src;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
       <PreprocessorDefinitions>_HAS_EXCEPTIONS=0;DEBUG;_DEBUG;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <MinimalRebuild>false</MinimalRebuild>
       <BasicRuntimeChecks>EnableFastChecks</BasicRuntimeChecks>
@@ -104,7 +104,7 @@
     <ClCompile>
       <AdditionalOptions>  %(AdditionalOptions)</AdditionalOptions>
       <Optimization>MinSpace</Optimization>
-      <AdditionalIncludeDirectories>..\..\..\src;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>..\..\src;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
       <PreprocessorDefinitions>_HAS_EXCEPTIONS=0;NDEBUG;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <MinimalRebuild>false</MinimalRebuild>
       <StringPooling>true</StringPooling>
@@ -138,7 +138,7 @@
     <ClCompile>
       <AdditionalOptions>  %(AdditionalOptions)</AdditionalOptions>
       <Optimization>Full</Optimization>
-      <AdditionalIncludeDirectories>..\..\..\src;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>..\..\src;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
       <PreprocessorDefinitions>_HAS_EXCEPTIONS=0;NDEBUG;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <MinimalRebuild>false</MinimalRebuild>
       <StringPooling>true</StringPooling>
@@ -167,48 +167,48 @@
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
-    <ClInclude Include="..\..\..\demo\imgui\imconfig.h" />
-    <ClInclude Include="..\..\..\demo\imgui\imgui.h" />
-    <ClInclude Include="..\..\..\demo\imgui\imgui_dock.h" />
-    <ClInclude Include="..\..\..\demo\imgui\imgui_internal.h" />
-    <ClInclude Include="..\..\..\demo\imgui\imgui_user.h" />
-    <ClInclude Include="..\..\..\demo\imgui\stb_rect_pack.h" />
-    <ClInclude Include="..\..\..\demo\imgui\stb_textedit.h" />
-    <ClInclude Include="..\..\..\demo\imgui\stb_truetype.h" />
-    <ClInclude Include="..\..\..\src\miniz.h" />
-    <ClInclude Include="..\..\..\src\OFBMath.h" />
-    <ClInclude Include="..\..\..\src\OFBProperty.h" />
-    <ClInclude Include="..\..\..\src\OFBRenderer.h" />
-    <ClInclude Include="..\..\..\src\OFBTime.h" />
-    <ClInclude Include="..\..\..\src\OFBTypes.h" />
-    <ClInclude Include="..\..\..\src\ofbx.h" />
+    <ClInclude Include="..\..\demo\imgui\imconfig.h" />
+    <ClInclude Include="..\..\demo\imgui\imgui.h" />
+    <ClInclude Include="..\..\demo\imgui\imgui_dock.h" />
+    <ClInclude Include="..\..\demo\imgui\imgui_internal.h" />
+    <ClInclude Include="..\..\demo\imgui\imgui_user.h" />
+    <ClInclude Include="..\..\demo\imgui\stb_rect_pack.h" />
+    <ClInclude Include="..\..\demo\imgui\stb_textedit.h" />
+    <ClInclude Include="..\..\demo\imgui\stb_truetype.h" />
+    <ClInclude Include="..\..\src\miniz.h" />
+    <ClInclude Include="..\..\src\OFBMath.h" />
+    <ClInclude Include="..\..\src\OFBProperty.h" />
+    <ClInclude Include="..\..\src\OFBRenderer.h" />
+    <ClInclude Include="..\..\src\OFBTime.h" />
+    <ClInclude Include="..\..\src\OFBTypes.h" />
+    <ClInclude Include="..\..\src\ofbx.h" />
   </ItemGroup>
   <ItemGroup>
-    <ClCompile Include="..\..\..\src\miniz.c">
+    <ClCompile Include="..\..\src\miniz.c">
       <ObjectFileName>$(IntDir)src\</ObjectFileName>
     </ClCompile>
-    <ClCompile Include="..\..\..\src\OFBMath.cpp">
+    <ClCompile Include="..\..\src\OFBMath.cpp">
       <ObjectFileName>$(IntDir)src\</ObjectFileName>
     </ClCompile>
-    <ClCompile Include="..\..\..\src\OFBProperty.cpp">
+    <ClCompile Include="..\..\src\OFBProperty.cpp">
       <ObjectFileName>$(IntDir)src\</ObjectFileName>
     </ClCompile>
-    <ClCompile Include="..\..\..\src\OFBTime.cpp">
+    <ClCompile Include="..\..\src\OFBTime.cpp">
       <ObjectFileName>$(IntDir)src\</ObjectFileName>
     </ClCompile>
-    <ClCompile Include="..\..\..\src\ofbx.cpp">
+    <ClCompile Include="..\..\src\ofbx.cpp">
       <ObjectFileName>$(IntDir)src\</ObjectFileName>
     </ClCompile>
-    <ClCompile Include="..\..\..\demo\main.cpp">
+    <ClCompile Include="..\..\demo\main.cpp">
       <ObjectFileName>$(IntDir)demo\</ObjectFileName>
     </ClCompile>
-    <ClCompile Include="..\..\..\demo\imgui\imgui.cpp">
+    <ClCompile Include="..\..\demo\imgui\imgui.cpp">
       <ObjectFileName>$(IntDir)demo\imgui\</ObjectFileName>
     </ClCompile>
-    <ClCompile Include="..\..\..\demo\imgui\imgui_demo.cpp">
+    <ClCompile Include="..\..\demo\imgui\imgui_demo.cpp">
       <ObjectFileName>$(IntDir)demo\imgui\</ObjectFileName>
     </ClCompile>
-    <ClCompile Include="..\..\..\demo\imgui\imgui_draw.cpp">
+    <ClCompile Include="..\..\demo\imgui\imgui_draw.cpp">
       <ObjectFileName>$(IntDir)demo\imgui\</ObjectFileName>
     </ClCompile>
   </ItemGroup>
