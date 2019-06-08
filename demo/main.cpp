@@ -217,22 +217,22 @@ bool saveAsOBJ(ofbx::IScene& scene, const char* path)
 		const ofbx::Mesh& mesh = *scene.getMesh(i);
 		const ofbx::Geometry& geom = *mesh.getGeometry();
 		int vertex_count = geom.getVertexCount();
-		const ofbx::Vec3* vertices = geom.getVertices();
+		const ofbx::OFBVector3* vertices = geom.getVertices();
 		for (int i = 0; i < vertex_count; ++i)
 		{
-			ofbx::Vec3 v = vertices[i];
+			ofbx::OFBVector3 v = vertices[i];
 			fprintf(fp, "v %f %f %f\n", v.x, v.y, v.z);
 		}
 
 		bool has_normals = geom.getNormals() != nullptr;
 		if (has_normals)
 		{
-			const ofbx::Vec3* normals = geom.getNormals();
+			const ofbx::OFBVector3* normals = geom.getNormals();
 			int count = geom.getVertexCount();
 
 			for (int i = 0; i < count; ++i)
 			{
-				ofbx::Vec3 n = normals[i];
+				ofbx::OFBVector3 n = normals[i];
 				fprintf(fp, "vn %f %f %f\n", n.x, n.y, n.z);
 			}
 		}
@@ -240,12 +240,12 @@ bool saveAsOBJ(ofbx::IScene& scene, const char* path)
 		bool has_uvs = geom.getUVs() != nullptr;
 		if (has_uvs)
 		{
-			const ofbx::Vec2* uvs = geom.getUVs();
+			const ofbx::OFBVector2* uvs = geom.getUVs();
 			int count = geom.getVertexCount();
 
 			for (int i = 0; i < count; ++i)
 			{
-				ofbx::Vec2 uv = uvs[i];
+				ofbx::OFBVector2 uv = uvs[i];
 				fprintf(fp, "vt %f %f\n", uv.x, uv.y);
 			}
 		}

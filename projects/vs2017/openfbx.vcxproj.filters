@@ -1,0 +1,93 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Project ToolsVersion="15.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup>
+    <Filter Include="src">
+      <UniqueIdentifier>{2DAB880B-99B4-887C-2230-9F7C8E38947C}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="demo">
+      <UniqueIdentifier>{8AA1957C-76D8-960D-1FC5-7C100BDB120F}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="demo\imgui">
+      <UniqueIdentifier>{C152B395-AD0A-F5E2-1612-CE3E02E98FD3}</UniqueIdentifier>
+    </Filter>
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="..\..\genie.lua" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="..\..\..\demo\imgui\imconfig.h">
+      <Filter>demo\imgui</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\demo\imgui\imgui.h">
+      <Filter>demo\imgui</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\demo\imgui\imgui_dock.h">
+      <Filter>demo\imgui</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\demo\imgui\imgui_internal.h">
+      <Filter>demo\imgui</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\demo\imgui\imgui_user.h">
+      <Filter>demo\imgui</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\demo\imgui\stb_rect_pack.h">
+      <Filter>demo\imgui</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\demo\imgui\stb_textedit.h">
+      <Filter>demo\imgui</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\demo\imgui\stb_truetype.h">
+      <Filter>demo\imgui</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\src\miniz.h">
+      <Filter>src</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\src\OFBMath.h">
+      <Filter>src</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\src\OFBProperty.h">
+      <Filter>src</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\src\OFBRenderer.h">
+      <Filter>src</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\src\OFBTime.h">
+      <Filter>src</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\src\OFBTypes.h">
+      <Filter>src</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\src\ofbx.h">
+      <Filter>src</Filter>
+    </ClInclude>
+  </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="..\..\..\src\miniz.c">
+      <Filter>src</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\..\src\OFBMath.cpp">
+      <Filter>src</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\..\src\OFBProperty.cpp">
+      <Filter>src</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\..\src\OFBTime.cpp">
+      <Filter>src</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\..\src\ofbx.cpp">
+      <Filter>src</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\..\demo\main.cpp">
+      <Filter>demo</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\..\demo\imgui\imgui.cpp">
+      <Filter>demo\imgui</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\..\demo\imgui\imgui_demo.cpp">
+      <Filter>demo\imgui</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\..\demo\imgui\imgui_draw.cpp">
+      <Filter>demo\imgui</Filter>
+    </ClCompile>
+  </ItemGroup>
+</Project>
