@@ -1,4 +1,4 @@
-[![Build status](https://ci.appveyor.com/api/projects/status/btsbfcl4khbbn89x/branch/master?svg=true)](https://ci.appveyor.com/project/Neill3d/openfbx/branch/master)
+[![Build status](https://ci.appveyor.com/api/projects/status/btsbfcl4khbbn89x/branch/main?svg=true)](https://ci.appveyor.com/project/Neill3d/openfbx/branch/main)
 [![Gitter](https://badges.gitter.im/Neill3d/community.svg)](https://gitter.im/Neill3d/community?utm_source=badge&utm_medium=badge&utm_campaign=pr-badge)
 [![License](http://img.shields.io/:license-mit-blue.svg)](http://doge.mit-license.org)
 
@@ -15,7 +15,7 @@ Library is multiplatform as well.
 
 Work in Progress!
 
-[![OpenFBX](https://github.com/Neill3d/OpenFBX/blob/master/Doc/Images/2018-05-11_165517.jpg)]()
+[![OpenFBX](https://github.com/Neill3d/OpenFBX/blob/main/Doc/Images/2018-05-11_165517.jpg)]()
 
 ## Saving FBX files
 
