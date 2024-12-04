@@ -1,5 +1,4 @@
 [![Build status](https://ci.appveyor.com/api/projects/status/btsbfcl4khbbn89x/branch/main?svg=true)](https://ci.appveyor.com/project/Neill3d/openfbx/branch/main)
-[![Gitter](https://badges.gitter.im/Neill3d/community.svg)](https://gitter.im/Neill3d/community?utm_source=badge&utm_medium=badge&utm_campaign=pr-badge)
 [![License](http://img.shields.io/:license-mit-blue.svg)](http://doge.mit-license.org)
 
 # OpenFBX and FBX Viewer
